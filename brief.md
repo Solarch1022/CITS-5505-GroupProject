@@ -43,9 +43,6 @@ As a participant, I want my code to be marked as used immediately after I play, 
 **10. Result screen**
 As a participant, I want to see a clear result screen after playing that shows my prize (image + label), so that I know what I won and can report or screenshot it for the host.
 
-
-Here's the full picture — pages and framework decision added:
-
 ---
 
 ## CSS Framework: **Bootstrap 5**
