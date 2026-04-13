@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    container_name: secondhand-market-web
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=development
+      - DATABASE_URL=sqlite:////app/instance/app.db
+      - SECRET_KEY=dev-secret-key-change-in-production
+    volumes:
+      - ./src:/app:ro
+      - ./instance:/app/instance
+    command: python app.py
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
