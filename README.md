@@ -101,7 +101,7 @@ source venv/bin/activate
 python src/app.py
 ```
 
-Server will be available at `http://localhost:5000`
+Server will be available at `http://localhost:8000`
 
 ### With Docker
 
@@ -112,6 +112,8 @@ docker-compose up --build
 # Stop containers
 docker-compose down
 ```
+
+Server will be available at `http://localhost:8000`
 
 ## Makefile Commands
 
