@@ -45,10 +45,12 @@ docker-restart: docker-down docker-up
 
 # Database commands
 db-init:
-	$(VENV_BIN)/python -c "from src.app import create_app; app = create_app(); app.app_context().push(); from src.models import db; db.create_all(); print('✓ Database initialized')"
+	$(VENV_BIN)/python -c "from src.app import create_app; app = create_app(); print('✓ Database initialized')"
 
-db-reset: db-init
-	$(VENV_BIN)/python -c "from src.app import create_app; from src.models import db, User, Item; app = create_app(); app.app_context().push(); db.session.query(Item).delete(); db.session.query(User).delete(); db.session.commit(); print('✓ Database reset')"
+db-reset:
+	@rm -f instance/app.db
+	@mkdir -p instance
+	$(VENV_BIN)/python -c "from src.app import create_app; app = create_app(); print('✓ Database reset and ready')"
 
 # Cleanup
 clean:
