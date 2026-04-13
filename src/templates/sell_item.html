@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block title %}Sell Item - SecondHand Market{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="form-container">
+        <h2>Sell Your Item</h2>
+        <form method="POST" class="form">
+            <div class="form-group">
+                <label for="title">Item Title</label>
+                <input type="text" id="title" name="title" required placeholder="e.g., iPhone 12 Pro">
+            </div>
+            <div class="form-group">
+                <label for="description">Description</label>
+                <textarea id="description" name="description" required placeholder="Describe your item..." rows="5"></textarea>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="price">Price ($)</label>
+                    <input type="number" id="price" name="price" step="0.01" required>
+                </div>
+                <div class="form-group">
+                    <label for="condition">Condition</label>
+                    <select id="condition" name="condition" required>
+                        <option value="">Select condition</option>
+                        {% for condition in conditions %}
+                            <option value="{{ condition }}">{{ condition }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="category">Category</label>
+                <select id="category" name="category" required>
+                    <option value="">Select category</option>
+                    {% for category in categories %}
+                        <option value="{{ category }}">{{ category }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary">List Item</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
