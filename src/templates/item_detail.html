@@ -9,8 +9,8 @@
             <h2>{{ item.title }}</h2>
             <div class="item-meta">
                 <span class="category-badge">{{ item.category }}</span>
-                <span class="condition condition-{{ item.condition.lower().replace(' ', '-') }}">{{ item.condition }}</span>
-                <span class="date">Listed {{ item.created_at.strftime('%B %d, %Y') }}</span>
+                <span class="condition condition-{{ item.condition|lower|replace(' ', '-') }}">{{ item.condition }}</span>
+                <span class="date">Listed {{ item.created_at|strftime('%B %d, %Y') }}</span>
             </div>
             <p class="description">{{ item.description }}</p>
             

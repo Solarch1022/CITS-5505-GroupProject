@@ -31,6 +31,13 @@ def create_app(config_name='development'):
     with app.app_context():
         db.create_all()
     
+    # Custom Jinja2 filters
+    @app.template_filter('strftime')
+    def format_datetime(value, format='%B %d, %Y'):
+        if not value:
+            return ''
+        return value.strftime(format)
+    
     # Blueprint: Authentication
     @app.route('/')
     def index():

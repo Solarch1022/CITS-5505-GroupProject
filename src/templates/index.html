@@ -33,7 +33,7 @@
                     <p class="item-description">{{ item.description[:100] }}...</p>
                     <div class="item-footer">
                         <span class="price">${{ "%.2f"|format(item.price) }}</span>
-                        <span class="condition condition-{{ item.condition.lower().replace(' ', '-') }}">{{ item.condition }}</span>
+                        <span class="condition condition-{{ item.condition|lower|replace(' ', '-') }}">{{ item.condition }}</span>
                     </div>
                 </a>
             </article>

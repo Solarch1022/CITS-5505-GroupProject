@@ -30,7 +30,7 @@
                 <p class="seller">By: {{ item.seller.username }}</p>
                 <div class="item-footer">
                     <span class="price">${{ "%.2f"|format(item.price) }}</span>
-                    <span class="condition condition-{{ item.condition.lower().replace(' ', '-') }}">{{ item.condition }}</span>
+                    <span class="condition condition-{{ item.condition|lower|replace(' ', '-') }}">{{ item.condition }}</span>
                 </div>
             </a>
         </article>
