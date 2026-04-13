@@ -32,7 +32,7 @@
                     <div class="alert alert-info">This is your item</div>
                     <a href="#" class="btn btn-secondary" onclick="return false;">Edit Item</a>
                 {% elif current_user.is_authenticated %}
-                    <button class="btn btn-primary" onclick="purchaseItem({{ item.id }})">Purchase Now</button>
+                    <button class="btn btn-primary" data-item-id="{{ item.id }}" onclick="purchaseItem(this.dataset.itemId)">Purchase Now</button>
                 {% else %}
                     <a href="{{ url_for('auth_login') }}" class="btn btn-primary">Login to Purchase</a>
                 {% endif %}
