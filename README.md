@@ -1,11 +1,34 @@
 # SecondHand Market Platform
 
-A simple Flask-based marketplace for buying and selling second-hand items.
+A modern Flask-based marketplace for buying and selling second-hand items using **client-server architecture** with a REST API backend and Single Page Application (SPA) frontend.
+
+## ⭐ Architecture: Client-Server (SPA)
+
+This application uses a true **client-server architecture**:
+- **Backend**: REST API endpoints (15+ routes) returning JSON
+- **Frontend**: Single Page Application (vanilla JavaScript, no frameworks)
+- **Communication**: HTTP requests with JSON payloads
+- **User Experience**: Fast, responsive, no page reloads
+
+**Key Features:**
+- ✅ RESTful API with 15+ JSON endpoints
+- ✅ Single Page Application (SPA) with vanilla JavaScript
+- ✅ Fast, responsive user interface
+- ✅ Clear separation of concerns
+- ✅ Scalable architecture
+- ✅ Mobile-friendly responsive design
+
+**To access the SPA:**
+```bash
+http://localhost:8000/app
+```
+
+For detailed architecture information, see [CLIENT_SERVER_ARCHITECTURE.md](CLIENT_SERVER_ARCHITECTURE.md)
 
 ## Tech Stack
-- **Backend**: Python 3.11.11 with Flask
-- **Database**: SQLite
-- **Frontend**: HTML, CSS, JavaScript (vanilla)
+- **Backend**: Python 3.11.11 with Flask REST API
+- **Database**: SQLite with SQLAlchemy ORM
+- **Frontend**: HTML5, CSS3, Vanilla JavaScript (ES6+)
 - **Deployment**: Docker & Docker Compose
 
 ## Project Structure

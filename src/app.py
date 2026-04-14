@@ -52,6 +52,49 @@ def create_app(config_name='development'):
         return render_template('app.html')
     
     # ============================================
+    # FALLBACK ROUTES (from old architecture)
+    # ============================================
+    # These routes redirect to the SPA for backward compatibility
+    
+    @app.route('/browse')
+    @app.route('/items')
+    def browse_fallback():
+        """Redirect old browse route to SPA"""
+        return redirect('/app')
+    
+    @app.route('/login')
+    def auth_login_fallback():
+        """Redirect old login route to SPA"""
+        return redirect('/app')
+    
+    @app.route('/register')
+    def auth_register_fallback():
+        """Redirect old register route to SPA"""
+        return redirect('/app')
+    
+    @app.route('/sell')
+    def sell_item_fallback():
+        """Redirect old sell route to SPA"""
+        return redirect('/app')
+    
+    @app.route('/dashboard')
+    def dashboard_fallback():
+        """Redirect old dashboard route to SPA"""
+        return redirect('/app')
+    
+    @app.route('/item/<int:item_id>')
+    def item_detail_fallback(item_id):
+        """Redirect old item detail route to SPA"""
+        return redirect('/app')
+    
+    @app.route('/logout')
+    def auth_logout_fallback():
+        """Redirect old logout route to SPA"""
+        session.clear()
+        logout_user()
+        return redirect('/app')
+    
+    # ============================================
     # API: AUTHENTICATION ENDPOINTS
     # ============================================
     
