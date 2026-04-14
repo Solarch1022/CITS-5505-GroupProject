@@ -2,29 +2,6 @@
 
 A modern Flask-based marketplace for buying and selling second-hand items using **client-server architecture** with a REST API backend and Single Page Application (SPA) frontend.
 
-## ⭐ Architecture: Client-Server (SPA)
-
-This application uses a true **client-server architecture**:
-- **Backend**: REST API endpoints (15+ routes) returning JSON
-- **Frontend**: Single Page Application (vanilla JavaScript, no frameworks)
-- **Communication**: HTTP requests with JSON payloads
-- **User Experience**: Fast, responsive, no page reloads
-
-**Key Features:**
-- ✅ RESTful API with 15+ JSON endpoints
-- ✅ Single Page Application (SPA) with vanilla JavaScript
-- ✅ Fast, responsive user interface
-- ✅ Clear separation of concerns
-- ✅ Scalable architecture
-- ✅ Mobile-friendly responsive design
-
-**To access the SPA:**
-```bash
-http://localhost:8000/app
-```
-
-For detailed architecture information, see [CLIENT_SERVER_ARCHITECTURE.md](CLIENT_SERVER_ARCHITECTURE.md)
-
 ## Tech Stack
 - **Backend**: Python 3.11.11 with Flask REST API
 - **Database**: SQLite with SQLAlchemy ORM
@@ -114,7 +91,6 @@ src/
 
 ## Running the Application
 
-### Without Docker
 
 ```bash
 # Activate virtual environment
@@ -126,17 +102,6 @@ python src/app.py
 
 Server will be available at `http://localhost:8000`
 
-### With Docker
-
-```bash
-# Build and start containers
-docker-compose up --build
-
-# Stop containers
-docker-compose down
-```
-
-Server will be available at `http://localhost:8000`
 
 ## Makefile Commands
 
@@ -175,17 +140,3 @@ make db-reset     # Reset database and seed data
 - Like New
 - Good
 - Fair
-
-## Future Enhancements
-
-- User ratings and reviews
-- Image uploads
-- Payment integration
-- Messaging system
-- Advanced search filters
-- Email notifications
-- Admin dashboard
-
-## License
-
-MIT License
