@@ -10,8 +10,9 @@
 <body>
     <nav class="navbar">
         <div class="nav-container">
-            <a href="#" class="nav-logo" onclick="app.navigateTo('home'); return false;">UWA SecondHand</a>
+            <a href="/" class="nav-logo" onclick="app.goToLandingPage(); return false;">UWA SecondHand</a>
             <ul class="nav-menu" id="navMenu">
+                <li><a href="/" onclick="app.goToLandingPage(); return false;">Home</a></li>
                 <li><a href="#" onclick="app.navigateTo('browse'); return false;">Browse</a></li>
                 <li><a href="#" onclick="app.navigateTo('dashboard'); return false;">Inbox</a></li>
                 <li id="authNav">

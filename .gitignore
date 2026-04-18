@@ -63,6 +63,7 @@ db.sqlite3-journal
 
 # Flask stuff:
 instance/
+src/static/uploads/
 .webassets-cache
 
 # Scrapy stuff:

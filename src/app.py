@@ -6,17 +6,20 @@ import sys
 
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
+from werkzeug.utils import secure_filename
 
 sys.path.insert(0, os.path.dirname(__file__))
 
 from config import config
-from models import Conversation, Item, Message, Transaction, User, db
+from models import Conversation, Item, ItemImage, Message, Transaction, User, db
 
 
 ITEM_CATEGORIES = ['Electronics', 'Furniture', 'Clothing', 'Books', 'Sports', 'Other']
 ITEM_CONDITIONS = ['New', 'Like New', 'Good', 'Fair']
 UWA_STUDENT_DOMAIN = '@student.uwa.edu.au'
 MAX_MESSAGE_LENGTH = 600
+MAX_IMAGES_PER_ITEM = 6
+ALLOWED_IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.gif'}
 
 
 def is_valid_uwa_student_email(email):
@@ -32,6 +35,8 @@ def create_app(config_name='development'):
 
     login_manager = LoginManager()
     login_manager.init_app(app)
+    upload_root = os.path.join(app.static_folder, 'uploads', 'items')
+    os.makedirs(upload_root, exist_ok=True)
 
     @login_manager.user_loader
     def load_user(user_id):
@@ -52,6 +57,54 @@ def create_app(config_name='development'):
         token = secrets.token_hex(16)
         session['csrf_token'] = token
         return token
+
+    def normalize_uploaded_files(uploaded_files):
+        return [uploaded_file for uploaded_file in uploaded_files if uploaded_file and uploaded_file.filename]
+
+    def is_allowed_image_filename(filename):
+        extension = os.path.splitext(filename)[1].lower()
+        return extension in ALLOWED_IMAGE_EXTENSIONS
+
+    def remove_saved_files(saved_paths):
+        for saved_path in saved_paths:
+            if os.path.exists(saved_path):
+                os.remove(saved_path)
+
+        visited_dirs = set()
+        for saved_path in saved_paths:
+            parent_dir = os.path.dirname(saved_path)
+            if parent_dir and parent_dir not in visited_dirs and os.path.isdir(parent_dir):
+                visited_dirs.add(parent_dir)
+                if not os.listdir(parent_dir):
+                    os.rmdir(parent_dir)
+
+    def save_item_images(item, image_files):
+        image_records = []
+        saved_paths = []
+        item_upload_dir = os.path.join(upload_root, str(item.id))
+        os.makedirs(item_upload_dir, exist_ok=True)
+
+        for sort_order, image_file in enumerate(image_files):
+            original_filename = image_file.filename or ''
+            if not is_allowed_image_filename(original_filename):
+                allowed_formats = ', '.join(sorted(ext.lstrip('.') for ext in ALLOWED_IMAGE_EXTENSIONS))
+                raise ValueError(f'Only {allowed_formats} image files are supported')
+
+            extension = os.path.splitext(original_filename)[1].lower()
+            safe_stem = secure_filename(os.path.splitext(original_filename)[0])[:48] or 'item-image'
+            generated_name = f'{sort_order + 1}-{secrets.token_hex(8)}-{safe_stem}{extension}'
+            absolute_path = os.path.join(item_upload_dir, generated_name)
+            image_file.save(absolute_path)
+            saved_paths.append(absolute_path)
+
+            relative_path = '/'.join(['uploads', 'items', str(item.id), generated_name])
+            image_records.append(ItemImage(
+                item_id=item.id,
+                file_path=relative_path,
+                sort_order=sort_order,
+            ))
+
+        return image_records, saved_paths
 
     def csrf_protect(view):
         @wraps(view)
@@ -103,6 +156,14 @@ def create_app(config_name='development'):
         return payload
 
     def serialize_item(item, include_description=True):
+        image_payload = [
+            {
+                'id': image.id,
+                'url': url_for('static', filename=image.file_path),
+                'sort_order': image.sort_order,
+            }
+            for image in item.images
+        ]
         payload = {
             'id': item.id,
             'title': item.title,
@@ -112,6 +173,8 @@ def create_app(config_name='development'):
             'is_sold': item.is_sold,
             'created_at': item.created_at.isoformat(),
             'seller': serialize_user(item.seller),
+            'images': image_payload,
+            'primary_image_url': image_payload[0]['url'] if image_payload else None,
         }
         if include_description:
             payload['description'] = item.description
@@ -380,7 +443,13 @@ def create_app(config_name='development'):
     @login_required
     @csrf_protect
     def api_create_item():
-        data = request.get_json(silent=True)
+        image_files = []
+        if request.is_json:
+            data = request.get_json(silent=True)
+        else:
+            data = request.form.to_dict()
+            image_files = normalize_uploaded_files(request.files.getlist('images'))
+
         if not data:
             return jsonify({'success': False, 'error': 'Invalid JSON'}), 400
 
@@ -412,16 +481,38 @@ def create_app(config_name='development'):
         except (TypeError, ValueError):
             return jsonify({'success': False, 'error': 'Price must be a positive number'}), 400
 
-        item = Item(
-            title=title,
-            description=description,
-            price=price,
-            category=category,
-            condition=condition,
-            seller_id=current_user.id,
-        )
-        db.session.add(item)
-        db.session.commit()
+        if len(image_files) > MAX_IMAGES_PER_ITEM:
+            return jsonify({
+                'success': False,
+                'error': f'You can upload up to {MAX_IMAGES_PER_ITEM} images per listing',
+            }), 400
+
+        saved_paths = []
+        try:
+            item = Item(
+                title=title,
+                description=description,
+                price=price,
+                category=category,
+                condition=condition,
+                seller_id=current_user.id,
+            )
+            db.session.add(item)
+            db.session.flush()
+
+            if image_files:
+                image_records, saved_paths = save_item_images(item, image_files)
+                db.session.add_all(image_records)
+
+            db.session.commit()
+        except ValueError as error:
+            db.session.rollback()
+            remove_saved_files(saved_paths)
+            return jsonify({'success': False, 'error': str(error)}), 400
+        except OSError:
+            db.session.rollback()
+            remove_saved_files(saved_paths)
+            return jsonify({'success': False, 'error': 'Uploaded images could not be saved'}), 500
 
         return jsonify({
             'success': True,
@@ -658,6 +749,7 @@ def create_app(config_name='development'):
                 'conditions': ITEM_CONDITIONS,
                 'allowed_email_domain': UWA_STUDENT_DOMAIN,
                 'chat_enabled': True,
+                'max_images_per_item': MAX_IMAGES_PER_ITEM,
             },
         }), 200
 

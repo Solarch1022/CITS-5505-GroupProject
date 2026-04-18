@@ -9,6 +9,7 @@ class UwaMarketplaceApp {
             chat_enabled: false,
         };
         this.currentItem = null;
+        this.currentItemImageIndex = 0;
         this.activeConversationId = null;
         this.chatPoller = null;
         this.csrfToken = this.readCsrfToken();
@@ -59,8 +60,12 @@ class UwaMarketplaceApp {
         };
 
         if (options.body !== undefined) {
-            config.body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
-            config.headers['Content-Type'] = config.headers['Content-Type'] || 'application/json';
+            if (options.body instanceof FormData) {
+                config.body = options.body;
+            } else {
+                config.body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
+                config.headers['Content-Type'] = config.headers['Content-Type'] || 'application/json';
+            }
         }
 
         if (config.method !== 'GET') {
@@ -110,7 +115,7 @@ class UwaMarketplaceApp {
 
         if (this.currentUser) {
             authNav.innerHTML = `
-                <a href="#" onclick="app.navigateTo('dashboard'); return false;">${this.escapeHtml(this.currentUser.username)}</a>
+                <span class="nav-user">${this.escapeHtml(this.currentUser.username)}</span>
                 <a href="#" onclick="app.navigateTo('sell'); return false;" class="btn-sell">Sell</a>
                 <a href="#" onclick="app.handleLogout(); return false;">Logout</a>
             `;
@@ -204,6 +209,20 @@ class UwaMarketplaceApp {
         window.location.hash = targetHash;
     }
 
+    async goToLandingPage() {
+        this.stopConversationPolling();
+        this.currentPage = 'home';
+        this.currentItem = null;
+        this.currentItemImageIndex = 0;
+
+        if (window.location.hash) {
+            window.history.pushState({}, '', window.location.pathname);
+        }
+
+        await this.renderHome();
+        window.scrollTo(0, 0);
+    }
+
     async loadRouteFromHash() {
         const { page, params } = this.parseHash();
         this.currentPage = page;
@@ -274,11 +293,107 @@ class UwaMarketplaceApp {
         return `${verified}<span class="rating-pill">${this.escapeHtml(user.reputation.label)} · ${user.reputation.score.toFixed(1)}</span>`;
     }
 
+    renderCardImage(item) {
+        if (item.primary_image_url) {
+            return `<img src="${this.escapeHtml(item.primary_image_url)}" alt="${this.escapeHtml(item.title)}" class="item-image-preview">`;
+        }
+
+        return `<div class="placeholder">${this.escapeHtml(item.category.slice(0, 3).toUpperCase())}</div>`;
+    }
+
+    renderItemGallery(item) {
+        const images = item.images || [];
+        if (!images.length) {
+            return `<div class="item-image-large">${this.escapeHtml(item.category.slice(0, 3).toUpperCase())}</div>`;
+        }
+
+        const activeImage = images[this.currentItemImageIndex] || images[0];
+        const controls = images.length > 1 ? `
+            <div class="item-gallery-controls">
+                <button type="button" class="gallery-btn" onclick="app.changeCurrentItemImage(-1)">Previous</button>
+                <span class="gallery-counter">${this.currentItemImageIndex + 1} / ${images.length}</span>
+                <button type="button" class="gallery-btn" onclick="app.changeCurrentItemImage(1)">Next</button>
+            </div>
+        ` : '';
+
+        return `
+            <div class="item-gallery-shell">
+                <img src="${this.escapeHtml(activeImage.url)}" alt="${this.escapeHtml(item.title)}" class="item-image-photo" id="itemGalleryImage">
+                ${controls}
+            </div>
+        `;
+    }
+
+    updateCurrentItemGallery() {
+        if (!this.currentItem) {
+            return;
+        }
+
+        const galleryRoot = document.getElementById('itemGalleryRoot');
+        if (galleryRoot) {
+            galleryRoot.innerHTML = this.renderItemGallery(this.currentItem);
+        }
+    }
+
+    changeCurrentItemImage(step) {
+        if (!this.currentItem?.images?.length) {
+            return;
+        }
+
+        const imageCount = this.currentItem.images.length;
+        this.currentItemImageIndex = (this.currentItemImageIndex + step + imageCount) % imageCount;
+        this.updateCurrentItemGallery();
+    }
+
+    renderSelectedImagePreviews(files) {
+        const previewRoot = document.getElementById('imagePreviewGrid');
+        if (!previewRoot) {
+            return;
+        }
+
+        previewRoot.innerHTML = '';
+
+        if (!files.length) {
+            previewRoot.innerHTML = '<div class="empty-state compact">No images selected yet.</div>';
+            return;
+        }
+
+        files.forEach((file) => {
+            const previewCard = document.createElement('div');
+            previewCard.className = 'image-preview-card';
+
+            const image = document.createElement('img');
+            image.className = 'image-preview-thumb';
+            image.alt = file.name;
+
+            const caption = document.createElement('span');
+            caption.className = 'image-preview-name';
+            caption.textContent = file.name;
+
+            previewCard.appendChild(image);
+            previewCard.appendChild(caption);
+            previewRoot.appendChild(previewCard);
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                image.src = event.target?.result || '';
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    renderUserBadge(user) {
+        const verified = user.is_uwa_verified
+            ? '<span class="campus-pill">Verified UWA student</span>'
+            : '<span class="campus-pill pending">Verification pending</span>';
+        return `${verified}<span class="rating-pill">${this.escapeHtml(user.reputation.label)} - ${user.reputation.score.toFixed(1)}</span>`;
+    }
+
     renderItemCard(item) {
         return `
             <article class="item-card" onclick="app.navigateTo('item-detail', { itemId: ${item.id} })">
                 <div class="item-image">
-                    <div class="placeholder">${this.escapeHtml(item.category.slice(0, 3).toUpperCase())}</div>
+                    ${this.renderCardImage(item)}
                 </div>
                 <div class="item-content">
                     <h3>${this.escapeHtml(item.title)}</h3>
@@ -504,6 +619,7 @@ class UwaMarketplaceApp {
         }
 
         this.currentItem = data.item;
+        this.currentItemImageIndex = 0;
         let conversation = null;
 
         if (this.currentUser) {
@@ -521,8 +637,8 @@ class UwaMarketplaceApp {
 
         this.renderShell(`
             <section class="item-detail-container">
-                <div class="item-image-section">
-                    <div class="item-image-large">${this.escapeHtml(item.category.slice(0, 3).toUpperCase())}</div>
+                <div class="item-image-section" id="itemGalleryRoot">
+                    ${this.renderItemGallery(item)}
                 </div>
                 <div class="item-info-section">
                     <h1>${this.escapeHtml(item.title)}</h1>
@@ -799,11 +915,27 @@ class UwaMarketplaceApp {
                             </select>
                         </div>
                     </div>
+                    <div class="form-group">
+                        <label for="itemImages">Product images</label>
+                        <input type="file" id="itemImages" name="images" accept="image/*" multiple>
+                        <p class="panel-text">Upload up to ${this.constants.max_images_per_item || 6} local images. The first one becomes the cover photo.</p>
+                    </div>
+                    <div class="image-preview-grid" id="imagePreviewGrid">
+                        <div class="empty-state compact">No images selected yet.</div>
+                    </div>
                     <button type="submit" class="btn btn-primary">Publish listing</button>
                 </form>
                 <div id="sellError" class="error-message" style="display:none;"></div>
             </section>
         `);
+
+        const imageInput = document.getElementById('itemImages');
+        if (imageInput) {
+            imageInput.addEventListener('change', (event) => {
+                const files = Array.from(event.target.files || []);
+                this.renderSelectedImagePreviews(files);
+            });
+        }
     }
 
     async handleSellItem(event) {
@@ -814,16 +946,26 @@ class UwaMarketplaceApp {
         const price = document.getElementById('itemPrice')?.value || '';
         const category = document.getElementById('itemCategory')?.value || '';
         const condition = document.getElementById('itemCondition')?.value || '';
+        const imageFiles = Array.from(document.getElementById('itemImages')?.files || []);
+
+        if (imageFiles.length > (this.constants.max_images_per_item || 6)) {
+            this.showInlineError('sellError', `You can upload up to ${this.constants.max_images_per_item || 6} images.`);
+            return false;
+        }
+
+        const formData = new FormData();
+        formData.append('title', title);
+        formData.append('description', description);
+        formData.append('price', price);
+        formData.append('category', category);
+        formData.append('condition', condition);
+        imageFiles.forEach((file) => {
+            formData.append('images', file);
+        });
 
         const data = await this.request('/api/items', {
             method: 'POST',
-            body: {
-                title,
-                description,
-                price,
-                category,
-                condition,
-            },
+            body: formData,
         });
 
         if (!data.success) {

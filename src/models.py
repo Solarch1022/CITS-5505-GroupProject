@@ -66,6 +66,13 @@ class Item(db.Model):
     
     transactions = db.relationship('Transaction', backref='item', lazy=True)
     conversations = db.relationship('Conversation', backref='item', lazy=True, cascade='all, delete-orphan')
+    images = db.relationship(
+        'ItemImage',
+        backref='item',
+        lazy=True,
+        cascade='all, delete-orphan',
+        order_by='ItemImage.sort_order.asc()'
+    )
     
     def __repr__(self):
         return f'<Item {self.title}>'
@@ -88,6 +95,23 @@ class Transaction(db.Model):
     
     def __repr__(self):
         return f'<Transaction {self.id}>'
+
+
+class ItemImage(db.Model):
+    __tablename__ = 'item_images'
+
+    id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(db.Integer, db.ForeignKey('items.id'), nullable=False, index=True)
+    file_path = db.Column(db.String(255), nullable=False)
+    sort_order = db.Column(db.Integer, default=0, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        db.Index('idx_item_image_order', 'item_id', 'sort_order'),
+    )
+
+    def __repr__(self):
+        return f'<ItemImage item={self.item_id} path={self.file_path}>'
 
 
 class Conversation(db.Model):
