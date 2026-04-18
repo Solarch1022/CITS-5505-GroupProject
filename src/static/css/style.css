@@ -712,6 +712,53 @@ main {
     background: #f8fafc;
 }
 
+.image-preview-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.image-preview-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.16rem 0.5rem;
+    border-radius: 999px;
+    background: #0f4c81;
+    color: white;
+    font-size: 0.7rem;
+    font-weight: 700;
+}
+
+.image-preview-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-left: auto;
+}
+
+.image-preview-set-cover,
+.image-preview-remove {
+    border: none;
+    border-radius: 999px;
+    padding: 0.2rem 0.55rem;
+    cursor: pointer;
+    font-size: 0.72rem;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.image-preview-set-cover {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+.image-preview-remove {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+
 .image-preview-thumb {
     width: 100%;
     height: 96px;
