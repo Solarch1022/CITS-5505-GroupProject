@@ -21,6 +21,9 @@ class User(db.Model):
     items = db.relationship('Item', backref='seller', lazy=True, foreign_keys='Item.seller_id')
     seller_transactions = db.relationship('Transaction', backref='seller', lazy=True, foreign_keys='Transaction.seller_id')
     buyer_transactions = db.relationship('Transaction', backref='buyer', lazy=True, foreign_keys='Transaction.buyer_id')
+    seller_conversations = db.relationship('Conversation', backref='seller', lazy=True, foreign_keys='Conversation.seller_id')
+    buyer_conversations = db.relationship('Conversation', backref='buyer', lazy=True, foreign_keys='Conversation.buyer_id')
+    sent_messages = db.relationship('Message', backref='sender', lazy=True, foreign_keys='Message.sender_id')
     
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -62,6 +65,7 @@ class Item(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     transactions = db.relationship('Transaction', backref='item', lazy=True)
+    conversations = db.relationship('Conversation', backref='item', lazy=True, cascade='all, delete-orphan')
     
     def __repr__(self):
         return f'<Item {self.title}>'
@@ -84,4 +88,43 @@ class Transaction(db.Model):
     
     def __repr__(self):
         return f'<Transaction {self.id}>'
+
+
+class Conversation(db.Model):
+    __tablename__ = 'conversations'
+
+    id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(db.Integer, db.ForeignKey('items.id'), nullable=False, index=True)
+    seller_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    buyer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
+
+    messages = db.relationship('Message', backref='conversation', lazy=True, cascade='all, delete-orphan')
+
+    __table_args__ = (
+        db.UniqueConstraint('item_id', 'buyer_id', name='uq_conversation_item_buyer'),
+        db.Index('idx_conversation_seller_updated', 'seller_id', 'updated_at'),
+        db.Index('idx_conversation_buyer_updated', 'buyer_id', 'updated_at'),
+    )
+
+    def __repr__(self):
+        return f'<Conversation item={self.item_id} buyer={self.buyer_id}>'
+
+
+class Message(db.Model):
+    __tablename__ = 'messages'
+
+    id = db.Column(db.Integer, primary_key=True)
+    conversation_id = db.Column(db.Integer, db.ForeignKey('conversations.id'), nullable=False, index=True)
+    sender_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    body = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        db.Index('idx_message_conversation_created', 'conversation_id', 'created_at'),
+    )
+
+    def __repr__(self):
+        return f'<Message {self.id} conversation={self.conversation_id}>'
 

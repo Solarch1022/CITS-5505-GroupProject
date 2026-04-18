@@ -1,109 +1,222 @@
-// SecondHand Market - Single Page Application
-// Client-Server Architecture with Vanilla JavaScript
-
-class SecondHandApp {
+class UwaMarketplaceApp {
     constructor() {
         this.currentUser = null;
         this.currentPage = 'home';
-        this.constants = {};
-        this.items = [];
+        this.constants = {
+            categories: [],
+            conditions: [],
+            allowed_email_domain: '@student.uwa.edu.au',
+            chat_enabled: false,
+        };
         this.currentItem = null;
-        this.init();
+        this.activeConversationId = null;
+        this.chatPoller = null;
+        this.csrfToken = this.readCsrfToken();
     }
 
-    // ============================================
-    // Initialization
-    // ============================================
-
     async init() {
-        console.log('Initializing SecondHand Market App');
-        
-        // Load constants
         await this.loadConstants();
-        
-        // Check if user is logged in
         await this.checkAuthStatus();
-        
-        // Setup navigation
-        this.setupNavigation();
-        
-        // Load initial page
-        this.navigateTo('home');
+
+        window.addEventListener('hashchange', () => {
+            this.loadRouteFromHash();
+        });
+
+        this.loadRouteFromHash();
+    }
+
+    readCsrfToken() {
+        return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+    }
+
+    setCsrfToken(token) {
+        if (!token) {
+            return;
+        }
+
+        this.csrfToken = token;
+        const meta = document.querySelector('meta[name="csrf-token"]');
+        if (meta) {
+            meta.setAttribute('content', token);
+        }
+    }
+
+    stopConversationPolling() {
+        if (this.chatPoller) {
+            window.clearInterval(this.chatPoller);
+            this.chatPoller = null;
+        }
+    }
+
+    async request(url, options = {}) {
+        const config = {
+            method: options.method || 'GET',
+            headers: {
+                'Accept': 'application/json',
+                ...(options.headers || {}),
+            },
+            credentials: 'same-origin',
+        };
+
+        if (options.body !== undefined) {
+            config.body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
+            config.headers['Content-Type'] = config.headers['Content-Type'] || 'application/json';
+        }
+
+        if (config.method !== 'GET') {
+            config.headers['X-CSRF-Token'] = this.csrfToken;
+        }
+
+        const response = await fetch(url, config);
+        let data = {};
+
+        try {
+            data = await response.json();
+        } catch (error) {
+            data = {
+                success: false,
+                error: 'Unexpected response from server',
+            };
+        }
+
+        if (data.csrf_token) {
+            this.setCsrfToken(data.csrf_token);
+        }
+
+        data.http_status = response.status;
+        return data;
     }
 
     async loadConstants() {
-        try {
-            const response = await fetch('/api/constants');
-            const data = await response.json();
-            if (data.success) {
-                this.constants = data.constants;
-            }
-        } catch (error) {
-            console.error('Failed to load constants:', error);
+        const data = await this.request('/api/constants');
+        if (data.success) {
+            this.constants = data.constants;
         }
     }
 
     async checkAuthStatus() {
-        try {
-            const response = await fetch('/api/auth/current-user');
-            const data = await response.json();
-            
-            if (data.success && data.user && data.user.is_authenticated) {
-                this.currentUser = data.user;
-                console.log('User authenticated:', this.currentUser.username);
-            } else {
-                this.currentUser = null;
-            }
-            
+        const data = await this.request('/api/auth/current-user');
+        if (data.success) {
+            this.currentUser = data.user;
             this.updateNavigation();
-        } catch (error) {
-            console.error('Failed to check auth status:', error);
         }
-    }
-
-    setupNavigation() {
-        // Navigation links are setup, page rendering handled by navigateTo
     }
 
     updateNavigation() {
         const authNav = document.getElementById('authNav');
-        if (!authNav) return;
+        if (!authNav) {
+            return;
+        }
 
         if (this.currentUser) {
             authNav.innerHTML = `
-                <a href="#" onclick="app.navigateTo('dashboard'); return false;">${this.currentUser.username}</a>
+                <a href="#" onclick="app.navigateTo('dashboard'); return false;">${this.escapeHtml(this.currentUser.username)}</a>
+                <a href="#" onclick="app.navigateTo('sell'); return false;" class="btn-sell">Sell</a>
                 <a href="#" onclick="app.handleLogout(); return false;">Logout</a>
-                <a href="#" onclick="app.navigateTo('sell'); return false;" class="btn-sell">+ Sell</a>
             `;
-        } else {
-            authNav.innerHTML = `
-                <a href="#" onclick="app.navigateTo('login'); return false;">Login</a>
-                <a href="#" onclick="app.navigateTo('register'); return false;">Register</a>
-            `;
+            return;
+        }
+
+        authNav.innerHTML = `
+            <a href="#" onclick="app.navigateTo('login'); return false;">Login</a>
+            <a href="#" onclick="app.navigateTo('register'); return false;">Register</a>
+        `;
+    }
+
+    buildHash(page, params = {}) {
+        const query = new URLSearchParams();
+
+        switch (page) {
+            case 'browse':
+                if (params.category) {
+                    query.set('category', params.category);
+                }
+                if (params.search) {
+                    query.set('search', params.search);
+                }
+                return `#/browse${query.toString() ? `?${query.toString()}` : ''}`;
+            case 'login':
+                return '#/login';
+            case 'register':
+                return '#/register';
+            case 'sell':
+                return '#/sell';
+            case 'dashboard':
+                return '#/dashboard';
+            case 'item-detail':
+                return `#/item/${params.itemId}`;
+            default:
+                return '#/';
         }
     }
 
-    // ============================================
-    // Navigation & Routing
-    // ============================================
+    parseHash() {
+        const raw = window.location.hash.replace(/^#/, '') || '/';
+        const [pathPart, queryString = ''] = raw.split('?');
+        const path = pathPart || '/';
+        const segments = path.split('/').filter(Boolean);
+        const query = new URLSearchParams(queryString);
+
+        if (segments[0] === 'browse') {
+            return {
+                page: 'browse',
+                params: {
+                    category: query.get('category') || '',
+                    search: query.get('search') || '',
+                },
+            };
+        }
+
+        if (segments[0] === 'login') {
+            return { page: 'login', params: {} };
+        }
+
+        if (segments[0] === 'register') {
+            return { page: 'register', params: {} };
+        }
+
+        if (segments[0] === 'sell') {
+            return { page: 'sell', params: {} };
+        }
+
+        if (segments[0] === 'dashboard') {
+            return { page: 'dashboard', params: {} };
+        }
+
+        if (segments[0] === 'item' && segments[1]) {
+            return {
+                page: 'item-detail',
+                params: {
+                    itemId: Number(segments[1]),
+                },
+            };
+        }
+
+        return { page: 'home', params: {} };
+    }
 
     navigateTo(page, params = {}) {
+        const targetHash = this.buildHash(page, params);
+        if (window.location.hash === targetHash) {
+            this.loadRouteFromHash();
+            return;
+        }
+        window.location.hash = targetHash;
+    }
+
+    async loadRouteFromHash() {
+        const { page, params } = this.parseHash();
         this.currentPage = page;
-        
-        // Protect pages that require authentication
-        const protectedPages = ['sell', 'dashboard'];
-        if (protectedPages.includes(page) && !this.currentUser) {
+        this.stopConversationPolling();
+
+        if ((page === 'sell' || page === 'dashboard') && !this.currentUser) {
             this.navigateTo('login');
             return;
         }
 
-        // Render the appropriate page
         switch (page) {
-            case 'home':
-                this.renderHome();
-                break;
             case 'browse':
-                this.renderBrowse();
+                await this.renderBrowse(params);
                 break;
             case 'login':
                 this.renderLogin();
@@ -111,681 +224,891 @@ class SecondHandApp {
             case 'register':
                 this.renderRegister();
                 break;
-            case 'item-detail':
-                this.renderItemDetail(params.itemId);
-                break;
             case 'sell':
                 this.renderSell();
                 break;
             case 'dashboard':
-                this.renderDashboard();
+                await this.renderDashboard();
+                break;
+            case 'item-detail':
+                await this.renderItemDetail(params.itemId);
                 break;
             default:
-                this.renderHome();
+                await this.renderHome();
+                break;
         }
 
-        // Scroll to top
         window.scrollTo(0, 0);
     }
 
-    // ============================================
-    // Page: Home
-    // ============================================
-
-    async renderHome() {
-        try {
-            const response = await fetch('/api/items?limit=12');
-            const data = await response.json();
-            
-            if (!data.success) {
-                this.showError('Failed to load items');
-                return;
-            }
-
-            this.items = data.items;
-
-            let html = `
-                <div class="hero">
-                    <h1>Welcome to SecondHand Market</h1>
-                    <p>Buy and sell quality items from your community</p>
-                    <button class="btn btn-primary" onclick="app.navigateTo('browse')">Browse Items</button>
-                    ${this.currentUser ? `<button class="btn btn-secondary" onclick="app.navigateTo('sell')">Sell Something</button>` : `<button class="btn btn-secondary" onclick="app.navigateTo('register')">Join Now</button>`}
-                </div>
-
-                <div class="section">
-                    <h2>Featured Items</h2>
-                    <div class="items-grid">
-                        ${data.items.slice(0, 6).map(item => this.renderItemCard(item)).join('')}
-                    </div>
-                </div>
-            `;
-
-            document.getElementById('app-content').innerHTML = html;
-        } catch (error) {
-            console.error('Error rendering home:', error);
-            this.showError('Error loading home page');
+    renderShell(html) {
+        const root = document.getElementById('app-content');
+        if (root) {
+            root.innerHTML = html;
         }
     }
 
-    // ============================================
-    // Page: Browse Items
-    // ============================================
-
-    async renderBrowse() {
-        try {
-            const category = new URLSearchParams(window.location.search).get('category') || '';
-            const search = new URLSearchParams(window.location.search).get('search') || '';
-
-            let url = `/api/items?limit=24`;
-            if (category) url += `&category=${encodeURIComponent(category)}`;
-            if (search) url += `&search=${encodeURIComponent(search)}`;
-
-            const response = await fetch(url);
-            const data = await response.json();
-
-            if (!data.success) {
-                this.showError('Failed to load items');
-                return;
-            }
-
-            let html = `
-                <div class="browse-container">
-                    <div class="filters">
-                        <h3>Filters</h3>
-                        <div class="search-box">
-                            <input type="text" id="searchInput" placeholder="Search items..." value="${search}">
-                            <button onclick="app.performSearch()">Search</button>
-                        </div>
-                        
-                        <h4>Categories</h4>
-                        <div class="category-list">
-                            <button class="category-btn ${!category ? 'active' : ''}" onclick="app.filterByCategory('')">All Categories</button>
-                            ${this.constants.categories?.map(cat => `
-                                <button class="category-btn ${category === cat ? 'active' : ''}" onclick="app.filterByCategory('${cat}')">${cat}</button>
-                            `).join('') || ''}
-                        </div>
-                    </div>
-
-                    <div class="items-section">
-                        <h2>${category ? `${category} Items` : 'All Items'} (${data.total})</h2>
-                        <div class="items-grid">
-                            ${data.items.length > 0 ? 
-                                data.items.map(item => this.renderItemCard(item)).join('') :
-                                '<p>No items found</p>'
-                            }
-                        </div>
-                    </div>
+    renderMetricCards(reputation) {
+        return `
+            <div class="metric-grid">
+                <div class="metric-card">
+                    <span class="metric-value">${reputation.score.toFixed(1)}</span>
+                    <span class="metric-label">Reputation</span>
                 </div>
-            `;
-
-            document.getElementById('app-content').innerHTML = html;
-
-            // Setup search on Enter key
-            document.getElementById('searchInput')?.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') this.performSearch();
-            });
-        } catch (error) {
-            console.error('Error rendering browse:', error);
-            this.showError('Error loading browse page');
-        }
+                <div class="metric-card">
+                    <span class="metric-value">${reputation.completed_sales}</span>
+                    <span class="metric-label">Sales</span>
+                </div>
+                <div class="metric-card">
+                    <span class="metric-value">${reputation.completed_purchases}</span>
+                    <span class="metric-label">Purchases</span>
+                </div>
+            </div>
+        `;
     }
 
-    performSearch() {
-        const searchInput = document.getElementById('searchInput');
-        const search = searchInput?.value.trim() || '';
-        if (search) {
-            this.renderBrowse();
-        }
-    }
-
-    filterByCategory(category) {
-        this.renderBrowse();
+    renderUserBadge(user) {
+        const verified = user.is_uwa_verified
+            ? '<span class="campus-pill">Verified UWA student</span>'
+            : '<span class="campus-pill pending">Verification pending</span>';
+        return `${verified}<span class="rating-pill">${this.escapeHtml(user.reputation.label)} · ${user.reputation.score.toFixed(1)}</span>`;
     }
 
     renderItemCard(item) {
         return `
-            <div class="item-card" onclick="app.navigateTo('item-detail', {itemId: ${item.id}})">
+            <article class="item-card" onclick="app.navigateTo('item-detail', { itemId: ${item.id} })">
                 <div class="item-image">
-                    <div class="placeholder">IMG</div>
+                    <div class="placeholder">${this.escapeHtml(item.category.slice(0, 3).toUpperCase())}</div>
                 </div>
                 <div class="item-content">
                     <h3>${this.escapeHtml(item.title)}</h3>
-                    <p class="item-category">${item.category}</p>
-                    <p class="item-condition">${item.condition}</p>
-                    <p class="item-seller">by ${this.escapeHtml(item.seller.username)}</p>
+                    <div class="item-tags">
+                        <span class="item-category">${this.escapeHtml(item.category)}</span>
+                        <span class="item-condition">${this.escapeHtml(item.condition)}</span>
+                    </div>
+                    <p class="item-seller">Seller: ${this.escapeHtml(item.seller.full_name || item.seller.username)}</p>
+                    <div class="item-badges">${this.renderUserBadge(item.seller)}</div>
                     <div class="item-footer">
                         <span class="price">$${item.price.toFixed(2)}</span>
-                        <span class="status">${item.is_sold ? 'Sold' : 'Available'}</span>
+                        <span class="status ${item.is_sold ? 'status-sold' : ''}">${item.is_sold ? 'Sold' : 'Available'}</span>
                     </div>
                 </div>
+            </article>
+        `;
+    }
+
+    async renderHome() {
+        const data = await this.request('/api/items?limit=6');
+        const items = data.success ? data.items : [];
+
+        this.renderShell(`
+            <section class="hero hero-campus">
+                <div class="hero-copy">
+                    <span class="hero-kicker">Exclusive to the UWA campus community</span>
+                    <h1>Buy, sell, and message other UWA students in one place.</h1>
+                    <p>List textbooks, furniture, electronics, and moving-out essentials with verified student accounts and built-in chat.</p>
+                    <div class="hero-actions">
+                        <button class="btn btn-primary" onclick="app.navigateTo('browse')">Browse listings</button>
+                        ${this.currentUser
+                            ? '<button class="btn btn-secondary" onclick="app.navigateTo(\'sell\')">Post an item</button>'
+                            : '<button class="btn btn-secondary" onclick="app.navigateTo(\'register\')">Create UWA account</button>'}
+                    </div>
+                </div>
+                <div class="hero-panel">
+                    <h3>Why this concept fits the assignment</h3>
+                    <ul class="hero-points">
+                        <li>Client-server SPA with Flask and AJAX.</li>
+                        <li>Persistent users, listings, transactions, and messages.</li>
+                        <li>Students can browse data created by other students.</li>
+                        <li>Campus-only onboarding through UWA student email verification.</li>
+                    </ul>
+                </div>
+            </section>
+
+            <section class="section">
+                <div class="section-heading">
+                    <h2>Campus trust model</h2>
+                    <p>Every account is validated against ${this.escapeHtml(this.constants.allowed_email_domain)} before it can join the marketplace.</p>
+                </div>
+                <div class="info-banner">
+                    <div>
+                        <strong>Real-time chat:</strong> buyers and sellers can message inside each listing and keep the conversation on campus.
+                    </div>
+                    <div>
+                        <strong>Reputation:</strong> every completed sale and purchase contributes to a visible trader score.
+                    </div>
+                </div>
+            </section>
+
+            <section class="section">
+                <div class="section-heading">
+                    <h2>Latest listings</h2>
+                    <p>${items.length ? 'Fresh listings from the current database.' : 'No listings yet. Create the first UWA campus listing.'}</p>
+                </div>
+                <div class="items-grid">
+                    ${items.map((item) => this.renderItemCard(item)).join('')}
+                </div>
+            </section>
+        `);
+    }
+
+    async renderBrowse(params = {}) {
+        const category = params.category || '';
+        const search = params.search || '';
+        const query = new URLSearchParams({ limit: '24' });
+
+        if (category) {
+            query.set('category', category);
+        }
+        if (search) {
+            query.set('search', search);
+        }
+
+        const data = await this.request(`/api/items?${query.toString()}`);
+        const items = data.success ? data.items : [];
+
+        this.renderShell(`
+            <section class="browse-container">
+                <aside class="filters">
+                    <h3>Campus filters</h3>
+                    <p class="panel-text">Find what other UWA students are selling right now.</p>
+                    <div class="search-box">
+                        <input type="text" id="searchInput" placeholder="Search listings..." value="${this.escapeHtml(search)}">
+                        <button onclick="app.performSearch()">Search</button>
+                    </div>
+                    <h4>Categories</h4>
+                    <div class="category-list">
+                        <button class="category-btn ${!category ? 'active' : ''}" onclick="app.filterByCategory('')">All listings</button>
+                        ${this.constants.categories.map((name) => `
+                            <button class="category-btn ${category === name ? 'active' : ''}" onclick="app.filterByCategory('${this.escapeForSingleQuote(name)}')">${this.escapeHtml(name)}</button>
+                        `).join('')}
+                    </div>
+                </aside>
+
+                <section class="items-section">
+                    <div class="section-heading">
+                        <h2>${category ? `${this.escapeHtml(category)} listings` : 'All active listings'}</h2>
+                        <p>${data.success ? `${data.total} results on the campus marketplace.` : 'Listings could not be loaded.'}</p>
+                    </div>
+                    <div class="items-grid">
+                        ${items.length
+                            ? items.map((item) => this.renderItemCard(item)).join('')
+                            : '<div class="empty-state">No listings matched this search yet.</div>'}
+                    </div>
+                </section>
+            </section>
+        `);
+
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput) {
+            searchInput.addEventListener('keypress', (event) => {
+                if (event.key === 'Enter') {
+                    this.performSearch();
+                }
+            });
+        }
+    }
+
+    performSearch() {
+        const search = document.getElementById('searchInput')?.value.trim() || '';
+        const { params } = this.parseHash();
+        this.navigateTo('browse', {
+            category: params.category || '',
+            search,
+        });
+    }
+
+    filterByCategory(category) {
+        const { params } = this.parseHash();
+        this.navigateTo('browse', {
+            category,
+            search: params.search || '',
+        });
+    }
+
+    renderConversationMessages(conversation) {
+        if (!conversation || !conversation.messages || !conversation.messages.length) {
+            return '<div class="empty-state compact">No messages yet. Start the conversation.</div>';
+        }
+
+        return `
+            <div class="message-thread">
+                ${conversation.messages.map((message) => `
+                    <div class="message-bubble ${message.sender.id === this.currentUser?.id ? 'mine' : 'theirs'}">
+                        <div class="message-author">${this.escapeHtml(message.sender.full_name || message.sender.username)}</div>
+                        <div class="message-body">${this.escapeHtml(message.body)}</div>
+                        <div class="message-time">${new Date(message.created_at).toLocaleString()}</div>
+                    </div>
+                `).join('')}
             </div>
         `;
     }
 
-    // ============================================
-    // Page: Item Detail
-    // ============================================
-
-    async renderItemDetail(itemId) {
-        try {
-            const response = await fetch(`/api/items/${itemId}`);
-            const data = await response.json();
-
-            if (!data.success) {
-                this.showError('Item not found');
-                return;
-            }
-
-            const item = data.item;
-            this.currentItem = item;
-
-            let purchaseButton = '';
-            if (this.currentUser && this.currentUser.id !== item.seller.id) {
-                purchaseButton = `<button class="btn btn-primary" onclick="app.handlePurchase(${item.id})">Buy Now - $${item.price.toFixed(2)}</button>`;
-            } else if (this.currentUser && this.currentUser.id === item.seller.id) {
-                purchaseButton = '<p class="info-text">This is your item</p>';
-            } else {
-                purchaseButton = `<button class="btn btn-primary" onclick="app.navigateTo('login')">Login to Buy</button>`;
-            }
-
-            let html = `
-                <div class="item-detail-container">
-                    <div class="item-image-section">
-                        <div class="item-image-large">IMG</div>
-                    </div>
-
-                    <div class="item-info-section">
-                        <h1>${this.escapeHtml(item.title)}</h1>
-                        
-                        <div class="item-meta">
-                            <span class="badge">${item.category}</span>
-                            <span class="badge">${item.condition}</span>
-                            <span class="badge">${item.is_sold ? 'Sold' : 'Available'}</span>
-                        </div>
-
-                        <div class="seller-card">
-                            <h3>Seller</h3>
-                            <p><strong>${this.escapeHtml(item.seller.full_name)}</strong></p>
-                            <p>@${this.escapeHtml(item.seller.username)}</p>
-                            <p class="seller-bio">${this.escapeHtml(item.seller.bio || 'No bio')}</p>
-                        </div>
-
-                        <div class="pricing-section">
-                            <h2>$${item.price.toFixed(2)}</h2>
-                            ${!item.is_sold ? purchaseButton : '<p class="sold-text">This item has been sold</p>'}
-                        </div>
-                    </div>
-                </div>
-
-                <div class="item-description-section">
-                    <h2>Description</h2>
-                    <p>${this.escapeHtml(item.description)}</p>
-                    <p class="date-posted">Posted on ${new Date(item.created_at).toLocaleDateString()}</p>
-                </div>
-
-                <div class="back-button">
-                    <button class="btn btn-secondary" onclick="app.navigateTo('browse')">← Back to Browse</button>
+    renderItemConversationPanel(item, conversation) {
+        if (!this.currentUser) {
+            return `
+                <div class="chat-card">
+                    <h3>Campus chat</h3>
+                    <p class="panel-text">Login with your UWA student account to message this seller.</p>
+                    <button class="btn btn-primary" onclick="app.navigateTo('login')">Login to chat</button>
                 </div>
             `;
-
-            document.getElementById('app-content').innerHTML = html;
-        } catch (error) {
-            console.error('Error rendering item detail:', error);
-            this.showError('Error loading item details');
-        }
-    }
-
-    async handlePurchase(itemId) {
-        if (!this.currentUser) {
-            this.navigateTo('login');
-            return;
         }
 
-        if (!confirm('Are you sure you want to purchase this item?')) {
-            return;
-        }
-
-        try {
-            const response = await fetch(`/api/purchase/${itemId}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            });
-
-            const data = await response.json();
-
-            if (data.success) {
-                this.showSuccess('Purchase successful! Check your dashboard for details.');
-                setTimeout(() => this.navigateTo('dashboard'), 2000);
-            } else {
-                this.showError(data.error || 'Purchase failed');
-            }
-        } catch (error) {
-            console.error('Error during purchase:', error);
-            this.showError('Error processing purchase');
-        }
-    }
-
-    // ============================================
-    // Page: Login
-    // ============================================
-
-    renderLogin() {
-        let html = `
-            <div class="auth-container">
-                <div class="auth-card">
-                    <h1>Login</h1>
-                    <form onsubmit="return app.handleLogin(event)">
-                        <div class="form-group">
-                            <label for="username">Username</label>
-                            <input type="text" id="username" name="username" required>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="password">Password</label>
-                            <input type="password" id="password" name="password" required>
-                        </div>
-
-                        <button type="submit" class="btn btn-primary">Login</button>
-                    </form>
-
-                    <p class="auth-link">
-                        Don't have an account? <a href="#" onclick="app.navigateTo('register'); return false;">Register here</a>
-                    </p>
-
-                    <div id="loginError" class="error-message" style="display: none;"></div>
+        if (this.currentUser.id === item.seller.id) {
+            return `
+                <div class="chat-card">
+                    <h3>Campus chat</h3>
+                    <p class="panel-text">This is your own listing. Open the dashboard inbox to reply to buyers.</p>
+                    <button class="btn btn-secondary" onclick="app.navigateTo('dashboard')">Open inbox</button>
                 </div>
+            `;
+        }
+
+        if (!conversation) {
+            return `
+                <div class="chat-card">
+                    <h3>Message the seller</h3>
+                    <p class="panel-text">Only verified UWA student accounts can access chat. Introduce yourself and ask about pick-up on campus.</p>
+                    <form onsubmit="return app.startConversation(event, ${item.id})" class="chat-form">
+                        <textarea name="message" rows="4" placeholder="Hi, is this still available? I can meet on campus this week." required></textarea>
+                        <button type="submit" class="btn btn-primary">Start chat</button>
+                    </form>
+                </div>
+            `;
+        }
+
+        return `
+            <div class="chat-card">
+                <div class="chat-header">
+                    <div>
+                        <h3>Chat with ${this.escapeHtml(conversation.counterpart.full_name || conversation.counterpart.username)}</h3>
+                        <p class="panel-text">${this.renderUserBadge(conversation.counterpart)}</p>
+                    </div>
+                    <div class="chat-status">Live via AJAX polling</div>
+                </div>
+                ${this.renderConversationMessages(conversation)}
+                <form onsubmit="return app.sendConversationMessage(event, ${conversation.id}, 'item', ${item.id})" class="chat-form">
+                    <textarea name="message" rows="3" placeholder="Send a message..." required></textarea>
+                    <button type="submit" class="btn btn-primary">Send</button>
+                </form>
             </div>
         `;
+    }
 
-        document.getElementById('app-content').innerHTML = html;
+    async renderItemDetail(itemId) {
+        const data = await this.request(`/api/items/${itemId}`);
+        if (!data.success) {
+            this.renderShell('<div class="empty-state">This listing could not be loaded.</div>');
+            return;
+        }
+
+        this.currentItem = data.item;
+        let conversation = null;
+
+        if (this.currentUser) {
+            const conversationData = await this.request(`/api/items/${itemId}/conversation`);
+            if (conversationData.success && conversationData.mode === 'buyer') {
+                conversation = conversationData.conversation;
+                if (conversation) {
+                    this.startItemConversationPolling(itemId);
+                }
+            }
+        }
+
+        const item = data.item;
+        const canBuy = this.currentUser && this.currentUser.id !== item.seller.id && !item.is_sold;
+
+        this.renderShell(`
+            <section class="item-detail-container">
+                <div class="item-image-section">
+                    <div class="item-image-large">${this.escapeHtml(item.category.slice(0, 3).toUpperCase())}</div>
+                </div>
+                <div class="item-info-section">
+                    <h1>${this.escapeHtml(item.title)}</h1>
+                    <div class="item-meta">
+                        <span class="badge">${this.escapeHtml(item.category)}</span>
+                        <span class="badge">${this.escapeHtml(item.condition)}</span>
+                        <span class="badge ${item.is_sold ? 'sold' : 'available'}">${item.is_sold ? 'Sold' : 'Available'}</span>
+                    </div>
+
+                    <div class="seller-card">
+                        <h3>Seller profile</h3>
+                        <p><strong>${this.escapeHtml(item.seller.full_name || item.seller.username)}</strong></p>
+                        <p>@${this.escapeHtml(item.seller.username)}</p>
+                        <div class="item-badges">${this.renderUserBadge(item.seller)}</div>
+                        <p class="seller-bio">${this.escapeHtml(item.seller.bio || 'No profile bio yet.')}</p>
+                        ${this.renderMetricCards(item.seller.reputation)}
+                    </div>
+
+                    <div class="pricing-section">
+                        <h2>$${item.price.toFixed(2)}</h2>
+                        ${canBuy
+                            ? `<button class="btn btn-primary" onclick="app.handlePurchase(${item.id})">Buy now</button>`
+                            : `<p class="sold-text">${item.is_sold ? 'This listing has already been sold.' : 'This is your own listing.'}</p>`}
+                        <button class="btn btn-secondary" onclick="app.navigateTo('browse')">Back to browse</button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="item-description-section">
+                <h2>Description</h2>
+                <p>${this.escapeHtml(item.description)}</p>
+                <p class="date-posted">Posted on ${new Date(item.created_at).toLocaleDateString()}</p>
+            </section>
+
+            <section id="itemConversationPanel">
+                ${this.renderItemConversationPanel(item, conversation)}
+            </section>
+        `);
+    }
+
+    async refreshItemConversation(itemId) {
+        if (this.currentPage !== 'item-detail' || Number(this.currentItem?.id) !== Number(itemId)) {
+            this.stopConversationPolling();
+            return;
+        }
+
+        const data = await this.request(`/api/items/${itemId}/conversation`);
+        if (!data.success || data.mode !== 'buyer') {
+            return;
+        }
+
+        const panel = document.getElementById('itemConversationPanel');
+        if (panel) {
+            panel.innerHTML = this.renderItemConversationPanel(this.currentItem, data.conversation);
+        }
+    }
+
+    startItemConversationPolling(itemId) {
+        this.stopConversationPolling();
+        this.chatPoller = window.setInterval(() => {
+            this.refreshItemConversation(itemId);
+        }, 5000);
+    }
+
+    async startConversation(event, itemId) {
+        event.preventDefault();
+        const form = event.target;
+        const message = form.querySelector('textarea[name="message"]')?.value.trim() || '';
+
+        if (!message) {
+            this.showError('Message cannot be empty.');
+            return false;
+        }
+
+        const data = await this.request(`/api/items/${itemId}/conversations`, {
+            method: 'POST',
+            body: { message },
+        });
+
+        if (!data.success) {
+            this.showError(data.error || 'Could not start the conversation.');
+            return false;
+        }
+
+        this.showSuccess('Chat started.');
+        await this.renderItemDetail(itemId);
+        return false;
+    }
+
+    async sendConversationMessage(event, conversationId, context, itemId = null) {
+        event.preventDefault();
+        const form = event.target;
+        const message = form.querySelector('textarea[name="message"]')?.value.trim() || '';
+
+        if (!message) {
+            this.showError('Message cannot be empty.');
+            return false;
+        }
+
+        const data = await this.request(`/api/conversations/${conversationId}/messages`, {
+            method: 'POST',
+            body: { message },
+        });
+
+        if (!data.success) {
+            this.showError(data.error || 'Message could not be sent.');
+            return false;
+        }
+
+        form.reset();
+        this.showSuccess('Message sent.');
+
+        if (context === 'item' && itemId) {
+            const panel = document.getElementById('itemConversationPanel');
+            if (panel) {
+                panel.innerHTML = this.renderItemConversationPanel(this.currentItem, data.conversation);
+            }
+            this.startItemConversationPolling(itemId);
+        } else if (context === 'dashboard') {
+            this.activeConversationId = conversationId;
+            const panel = document.getElementById('dashboardConversationPanel');
+            if (panel) {
+                panel.innerHTML = this.renderDashboardConversationPanel(data.conversation);
+            }
+            this.startDashboardConversationPolling(conversationId);
+        }
+
+        return false;
+    }
+
+    renderLogin() {
+        this.renderShell(`
+            <section class="auth-container">
+                <div class="auth-card">
+                    <h1>Login</h1>
+                    <p class="panel-text">Use the account you created with your UWA student email.</p>
+                    <form onsubmit="return app.handleLogin(event)">
+                        <div class="form-group">
+                            <label for="loginUsername">Username</label>
+                            <input type="text" id="loginUsername" name="username" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="loginPassword">Password</label>
+                            <input type="password" id="loginPassword" name="password" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Login</button>
+                    </form>
+                    <p class="auth-link">
+                        Need an account? <a href="#" onclick="app.navigateTo('register'); return false;">Register with your UWA email</a>
+                    </p>
+                    <div id="loginError" class="error-message" style="display:none;"></div>
+                </div>
+            </section>
+        `);
     }
 
     async handleLogin(event) {
         event.preventDefault();
 
-        const username = document.getElementById('username').value.trim();
-        const password = document.getElementById('password').value;
+        const username = document.getElementById('loginUsername')?.value.trim() || '';
+        const password = document.getElementById('loginPassword')?.value || '';
+        const data = await this.request('/api/auth/login', {
+            method: 'POST',
+            body: { username, password },
+        });
 
-        try {
-            const response = await fetch('/api/auth/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
-            });
-
-            const data = await response.json();
-
-            if (data.success) {
-                this.currentUser = data.user;
-                this.updateNavigation();
-                this.showSuccess('Logged in successfully!');
-                setTimeout(() => this.navigateTo('home'), 1500);
-            } else {
-                document.getElementById('loginError').textContent = data.error;
-                document.getElementById('loginError').style.display = 'block';
-            }
-        } catch (error) {
-            console.error('Login error:', error);
-            document.getElementById('loginError').textContent = 'An error occurred during login';
-            document.getElementById('loginError').style.display = 'block';
+        if (!data.success) {
+            this.showInlineError('loginError', data.error || 'Login failed.');
+            return false;
         }
 
+        this.currentUser = data.user;
+        this.updateNavigation();
+        this.showSuccess('Logged in successfully.');
+        this.navigateTo('dashboard');
         return false;
     }
 
-    // ============================================
-    // Page: Register
-    // ============================================
-
     renderRegister() {
-        let html = `
-            <div class="auth-container">
-                <div class="auth-card">
-                    <h1>Register</h1>
+        this.renderShell(`
+            <section class="auth-container">
+                <div class="auth-card auth-card-wide">
+                    <h1>Create your UWA account</h1>
+                    <p class="panel-text">Registration is restricted to ${this.escapeHtml(this.constants.allowed_email_domain)} addresses so only UWA students can join.</p>
                     <form onsubmit="return app.handleRegister(event)">
                         <div class="form-group">
-                            <label for="fullName">Full Name</label>
-                            <input type="text" id="fullName" name="fullName" required>
+                            <label for="registerFullName">Full name</label>
+                            <input type="text" id="registerFullName" name="fullName" required>
                         </div>
-
                         <div class="form-group">
-                            <label for="regUsername">Username</label>
-                            <input type="text" id="regUsername" name="username" required>
+                            <label for="registerUsername">Username</label>
+                            <input type="text" id="registerUsername" name="username" required>
                         </div>
-
                         <div class="form-group">
-                            <label for="email">Email</label>
-                            <input type="email" id="email" name="email" required>
+                            <label for="registerEmail">UWA student email</label>
+                            <input type="email" id="registerEmail" name="email" placeholder="name@student.uwa.edu.au" required>
                         </div>
-
                         <div class="form-group">
-                            <label for="regPassword">Password</label>
-                            <input type="password" id="regPassword" name="password" required>
+                            <label for="registerPassword">Password</label>
+                            <input type="password" id="registerPassword" name="password" minlength="6" required>
                         </div>
-
                         <button type="submit" class="btn btn-primary">Register</button>
                     </form>
-
-                    <p class="auth-link">
-                        Already have an account? <a href="#" onclick="app.navigateTo('login'); return false;">Login here</a>
-                    </p>
-
-                    <div id="registerError" class="error-message" style="display: none;"></div>
+                    <div id="registerError" class="error-message" style="display:none;"></div>
                 </div>
-            </div>
-        `;
-
-        document.getElementById('app-content').innerHTML = html;
+            </section>
+        `);
     }
 
     async handleRegister(event) {
         event.preventDefault();
 
-        const fullName = document.getElementById('fullName').value.trim();
-        const username = document.getElementById('regUsername').value.trim();
-        const email = document.getElementById('email').value.trim();
-        const password = document.getElementById('regPassword').value;
+        const fullName = document.getElementById('registerFullName')?.value.trim() || '';
+        const username = document.getElementById('registerUsername')?.value.trim() || '';
+        const email = document.getElementById('registerEmail')?.value.trim().toLowerCase() || '';
+        const password = document.getElementById('registerPassword')?.value || '';
 
-        try {
-            const response = await fetch('/api/auth/register', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, email, password, full_name: fullName })
-            });
-
-            const data = await response.json();
-
-            if (data.success) {
-                this.showSuccess('Registration successful! Please login.');
-                setTimeout(() => this.navigateTo('login'), 1500);
-            } else {
-                document.getElementById('registerError').textContent = data.error;
-                document.getElementById('registerError').style.display = 'block';
-            }
-        } catch (error) {
-            console.error('Registration error:', error);
-            document.getElementById('registerError').textContent = 'An error occurred during registration';
-            document.getElementById('registerError').style.display = 'block';
+        if (!email.endsWith(this.constants.allowed_email_domain)) {
+            this.showInlineError('registerError', `Use your ${this.constants.allowed_email_domain} email to register.`);
+            return false;
         }
 
+        const data = await this.request('/api/auth/register', {
+            method: 'POST',
+            body: {
+                full_name: fullName,
+                username,
+                email,
+                password,
+            },
+        });
+
+        if (!data.success) {
+            this.showInlineError('registerError', data.error || 'Registration failed.');
+            return false;
+        }
+
+        this.showSuccess('Registration successful. Please login.');
+        this.navigateTo('login');
         return false;
     }
 
-    // ============================================
-    // Page: Sell Item
-    // ============================================
-
     renderSell() {
-        let html = `
-            <div class="form-container">
-                <h1>List a New Item</h1>
+        this.renderShell(`
+            <section class="form-container">
+                <h1>List a new item</h1>
+                <p class="panel-text">Keep descriptions practical so buyers know condition, pick-up area, and timing.</p>
                 <form onsubmit="return app.handleSellItem(event)">
                     <div class="form-group">
-                        <label for="itemTitle">Item Title</label>
-                        <input type="text" id="itemTitle" name="title" required>
+                        <label for="itemTitle">Title</label>
+                        <input type="text" id="itemTitle" name="title" minlength="4" required>
                     </div>
-
                     <div class="form-group">
                         <label for="itemDescription">Description</label>
-                        <textarea id="itemDescription" name="description" rows="6" required></textarea>
+                        <textarea id="itemDescription" name="description" rows="6" minlength="15" required></textarea>
                     </div>
-
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="itemPrice">Price ($)</label>
-                            <input type="number" id="itemPrice" name="price" step="0.01" min="0" required>
+                            <label for="itemPrice">Price (AUD)</label>
+                            <input type="number" id="itemPrice" name="price" min="0.01" step="0.01" required>
                         </div>
-
                         <div class="form-group">
                             <label for="itemCategory">Category</label>
                             <select id="itemCategory" name="category" required>
-                                <option value="">Select a category</option>
-                                ${this.constants.categories?.map(cat => `<option value="${cat}">${cat}</option>`).join('') || ''}
+                                <option value="">Select category</option>
+                                ${this.constants.categories.map((category) => `<option value="${this.escapeHtml(category)}">${this.escapeHtml(category)}</option>`).join('')}
                             </select>
                         </div>
-
                         <div class="form-group">
                             <label for="itemCondition">Condition</label>
                             <select id="itemCondition" name="condition" required>
                                 <option value="">Select condition</option>
-                                ${this.constants.conditions?.map(cond => `<option value="${cond}">${cond}</option>`).join('') || ''}
+                                ${this.constants.conditions.map((condition) => `<option value="${this.escapeHtml(condition)}">${this.escapeHtml(condition)}</option>`).join('')}
                             </select>
                         </div>
                     </div>
-
-                    <button type="submit" class="btn btn-primary">List Item</button>
-                    <button type="button" class="btn btn-secondary" onclick="app.navigateTo('dashboard')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Publish listing</button>
                 </form>
-
-                <div id="sellError" class="error-message" style="display: none;"></div>
-            </div>
-        `;
-
-        document.getElementById('app-content').innerHTML = html;
+                <div id="sellError" class="error-message" style="display:none;"></div>
+            </section>
+        `);
     }
 
     async handleSellItem(event) {
         event.preventDefault();
 
-        const title = document.getElementById('itemTitle').value.trim();
-        const description = document.getElementById('itemDescription').value.trim();
-        const price = parseFloat(document.getElementById('itemPrice').value);
-        const category = document.getElementById('itemCategory').value;
-        const condition = document.getElementById('itemCondition').value;
+        const title = document.getElementById('itemTitle')?.value.trim() || '';
+        const description = document.getElementById('itemDescription')?.value.trim() || '';
+        const price = document.getElementById('itemPrice')?.value || '';
+        const category = document.getElementById('itemCategory')?.value || '';
+        const condition = document.getElementById('itemCondition')?.value || '';
 
-        try {
-            const response = await fetch('/api/items', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title, description, price, category, condition })
-            });
+        const data = await this.request('/api/items', {
+            method: 'POST',
+            body: {
+                title,
+                description,
+                price,
+                category,
+                condition,
+            },
+        });
 
-            const data = await response.json();
-
-            if (data.success) {
-                this.showSuccess('Item listed successfully!');
-                setTimeout(() => this.navigateTo('dashboard'), 1500);
-            } else {
-                document.getElementById('sellError').textContent = data.error;
-                document.getElementById('sellError').style.display = 'block';
-            }
-        } catch (error) {
-            console.error('Error listing item:', error);
-            document.getElementById('sellError').textContent = 'An error occurred while listing the item';
-            document.getElementById('sellError').style.display = 'block';
+        if (!data.success) {
+            this.showInlineError('sellError', data.error || 'Listing failed.');
+            return false;
         }
 
+        this.showSuccess('Item listed successfully.');
+        this.navigateTo('item-detail', { itemId: data.item.id });
         return false;
     }
 
-    // ============================================
-    // Page: Dashboard
-    // ============================================
+    renderDashboardConversationPanel(conversation) {
+        if (!conversation) {
+            return '<div class="empty-state">Open a conversation to view messages.</div>';
+        }
+
+        return `
+            <div class="chat-card">
+                <div class="chat-header">
+                    <div>
+                        <h3>${this.escapeHtml(conversation.item.title)}</h3>
+                        <p class="panel-text">Conversation with ${this.escapeHtml(conversation.counterpart.full_name || conversation.counterpart.username)}</p>
+                    </div>
+                    <div class="chat-status">${conversation.item.is_sold ? 'Listing sold' : 'Listing active'}</div>
+                </div>
+                ${this.renderConversationMessages(conversation)}
+                <form onsubmit="return app.sendConversationMessage(event, ${conversation.id}, 'dashboard')" class="chat-form">
+                    <textarea name="message" rows="3" placeholder="Reply to this conversation..." required></textarea>
+                    <button type="submit" class="btn btn-primary">Send reply</button>
+                </form>
+            </div>
+        `;
+    }
 
     async renderDashboard() {
-        if (!this.currentUser) {
-            this.navigateTo('login');
+        const [dashboardData, conversationsData] = await Promise.all([
+            this.request('/api/dashboard'),
+            this.request('/api/conversations'),
+        ]);
+
+        if (!dashboardData.success) {
+            this.renderShell('<div class="empty-state">Dashboard data could not be loaded.</div>');
             return;
         }
 
-        try {
-            const response = await fetch('/api/dashboard');
-            const data = await response.json();
+        const dashboard = dashboardData.dashboard;
+        const conversations = conversationsData.success ? conversationsData.conversations : [];
 
-            if (!data.success) {
-                this.showError('Failed to load dashboard');
-                return;
-            }
+        if (!this.activeConversationId && conversations.length) {
+            this.activeConversationId = conversations[0].id;
+        }
 
-            const dashboard = data.dashboard;
+        const activeConversation = conversations.find((conversation) => conversation.id === this.activeConversationId) || conversations[0] || null;
 
-            let html = `
-                <div class="dashboard-container">
-                    <h1>Dashboard - ${this.escapeHtml(dashboard.user.full_name)}</h1>
-
-                    <div class="dashboard-menu">
-                        <button class="btn btn-secondary" onclick="app.navigateTo('sell')">+ List New Item</button>
-                        <button class="btn btn-secondary" onclick="app.navigateTo('browse')">Browse Items</button>
+        this.renderShell(`
+            <section class="dashboard-container">
+                <div class="dashboard-hero">
+                    <div>
+                        <h1>${this.escapeHtml(dashboard.user.full_name)}</h1>
+                        <p class="panel-text">${this.escapeHtml(dashboard.user.email)}</p>
+                        <div class="item-badges">${this.renderUserBadge(dashboard.user)}</div>
                     </div>
-
-                    <!-- Listings Section -->
-                    <div class="dashboard-section">
-                        <h2>My Listings (${dashboard.listings.length})</h2>
-                        ${dashboard.listings.length > 0 ? `
-                            <table class="dashboard-table">
-                                <thead>
-                                    <tr>
-                                        <th>Title</th>
-                                        <th>Price</th>
-                                        <th>Category</th>
-                                        <th>Status</th>
-                                        <th>Posted</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${dashboard.listings.map(item => `
-                                        <tr>
-                                            <td>${this.escapeHtml(item.title)}</td>
-                                            <td>$${item.price.toFixed(2)}</td>
-                                            <td>${item.category}</td>
-                                            <td><span class="badge ${item.is_sold ? 'sold' : 'available'}">${item.is_sold ? 'Sold' : 'Available'}</span></td>
-                                            <td>${new Date(item.created_at).toLocaleDateString()}</td>
-                                        </tr>
-                                    `).join('')}
-                                </tbody>
-                            </table>
-                        ` : '<p>You haven\'t listed any items yet. <a href="#" onclick="app.navigateTo(\'sell\'); return false;">Get started</a></p>'}
-                    </div>
-
-                    <!-- Purchases Section -->
-                    <div class="dashboard-section">
-                        <h2>My Purchases (${dashboard.purchases.length})</h2>
-                        ${dashboard.purchases.length > 0 ? `
-                            <table class="dashboard-table">
-                                <thead>
-                                    <tr>
-                                        <th>Item</th>
-                                        <th>Seller</th>
-                                        <th>Price</th>
-                                        <th>Status</th>
-                                        <th>Date</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${dashboard.purchases.map(purchase => `
-                                        <tr>
-                                            <td>${this.escapeHtml(purchase.item.title)}</td>
-                                            <td>${this.escapeHtml(purchase.seller.username)}</td>
-                                            <td>$${purchase.item.price.toFixed(2)}</td>
-                                            <td><span class="badge">${purchase.status}</span></td>
-                                            <td>${new Date(purchase.created_at).toLocaleDateString()}</td>
-                                        </tr>
-                                    `).join('')}
-                                </tbody>
-                            </table>
-                        ` : '<p>You haven\'t purchased anything yet. <a href="#" onclick="app.navigateTo(\'browse\'); return false;">Browse items</a></p>'}
-                    </div>
-
-                    <!-- Sales Section -->
-                    <div class="dashboard-section">
-                        <h2>My Sales (${dashboard.sales.length})</h2>
-                        ${dashboard.sales.length > 0 ? `
-                            <table class="dashboard-table">
-                                <thead>
-                                    <tr>
-                                        <th>Item</th>
-                                        <th>Buyer</th>
-                                        <th>Price</th>
-                                        <th>Status</th>
-                                        <th>Date</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${dashboard.sales.map(sale => `
-                                        <tr>
-                                            <td>${this.escapeHtml(sale.item.title)}</td>
-                                            <td>${this.escapeHtml(sale.buyer.username)}</td>
-                                            <td>$${sale.item.price.toFixed(2)}</td>
-                                            <td><span class="badge">${sale.status}</span></td>
-                                            <td>${new Date(sale.created_at).toLocaleDateString()}</td>
-                                        </tr>
-                                    `).join('')}
-                                </tbody>
-                            </table>
-                        ` : '<p>You haven\'t made any sales yet.</p>'}
+                    <div class="dashboard-actions">
+                        <button class="btn btn-primary" onclick="app.navigateTo('sell')">Post a new item</button>
+                        <button class="btn btn-secondary" onclick="app.navigateTo('browse')">Browse market</button>
                     </div>
                 </div>
-            `;
 
-            document.getElementById('app-content').innerHTML = html;
-        } catch (error) {
-            console.error('Error rendering dashboard:', error);
-            this.showError('Error loading dashboard');
+                ${this.renderMetricCards(dashboard.user.reputation)}
+
+                <div class="dashboard-grid">
+                    <section class="dashboard-section">
+                        <h2>My listings (${dashboard.listings.length})</h2>
+                        ${dashboard.listings.length
+                            ? `
+                                <div class="dashboard-list">
+                                    ${dashboard.listings.map((item) => `
+                                        <div class="dashboard-card">
+                                            <div>
+                                                <strong>${this.escapeHtml(item.title)}</strong>
+                                                <p>${this.escapeHtml(item.description_preview)}</p>
+                                            </div>
+                                            <div class="dashboard-card-meta">
+                                                <span>$${item.price.toFixed(2)}</span>
+                                                <span>${item.is_sold ? 'Sold' : 'Active'}</span>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            `
+                            : '<div class="empty-state compact">You have not posted any listings yet.</div>'}
+                    </section>
+
+                    <section class="dashboard-section">
+                        <h2>Purchases (${dashboard.purchases.length})</h2>
+                        ${dashboard.purchases.length
+                            ? `
+                                <div class="dashboard-list">
+                                    ${dashboard.purchases.map((purchase) => `
+                                        <div class="dashboard-card">
+                                            <div>
+                                                <strong>${this.escapeHtml(purchase.item.title)}</strong>
+                                                <p>Seller: ${this.escapeHtml(purchase.seller.full_name || purchase.seller.username)}</p>
+                                            </div>
+                                            <div class="dashboard-card-meta">
+                                                <span>$${purchase.item.price.toFixed(2)}</span>
+                                                <span>${this.escapeHtml(purchase.status)}</span>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            `
+                            : '<div class="empty-state compact">No purchases yet.</div>'}
+                    </section>
+
+                    <section class="dashboard-section">
+                        <h2>Sales (${dashboard.sales.length})</h2>
+                        ${dashboard.sales.length
+                            ? `
+                                <div class="dashboard-list">
+                                    ${dashboard.sales.map((sale) => `
+                                        <div class="dashboard-card">
+                                            <div>
+                                                <strong>${this.escapeHtml(sale.item.title)}</strong>
+                                                <p>Buyer: ${this.escapeHtml(sale.buyer.full_name || sale.buyer.username)}</p>
+                                            </div>
+                                            <div class="dashboard-card-meta">
+                                                <span>$${sale.item.price.toFixed(2)}</span>
+                                                <span>${this.escapeHtml(sale.status)}</span>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            `
+                            : '<div class="empty-state compact">No sales yet.</div>'}
+                    </section>
+                </div>
+
+                <section class="dashboard-section">
+                    <div class="section-heading">
+                        <h2>Live inbox</h2>
+                        <p>Use this to coordinate pick-up, negotiate timing, and confirm campus meet-ups.</p>
+                    </div>
+                    <div class="conversation-layout">
+                        <aside class="conversation-list">
+                            ${conversations.length
+                                ? conversations.map((conversation) => `
+                                    <button class="conversation-item ${conversation.id === activeConversation?.id ? 'active' : ''}" onclick="app.openConversation(${conversation.id})">
+                                        <div>
+                                            <strong>${this.escapeHtml(conversation.item.title)}</strong>
+                                            <p>${this.escapeHtml(conversation.counterpart.full_name || conversation.counterpart.username)}</p>
+                                        </div>
+                                        <span>${conversation.message_count} msg</span>
+                                    </button>
+                                `).join('')
+                                : '<div class="empty-state compact">No conversations yet. Message a seller from any listing.</div>'}
+                        </aside>
+                        <div id="dashboardConversationPanel">
+                            ${this.renderDashboardConversationPanel(activeConversation)}
+                        </div>
+                    </div>
+                </section>
+            </section>
+        `);
+
+        if (activeConversation) {
+            this.startDashboardConversationPolling(activeConversation.id);
         }
     }
 
-    // ============================================
-    // Authentication Handlers
-    // ============================================
+    openConversation(conversationId) {
+        this.activeConversationId = conversationId;
+        this.renderDashboard();
+    }
+
+    async refreshDashboardConversation(conversationId) {
+        if (this.currentPage !== 'dashboard' || this.activeConversationId !== conversationId) {
+            this.stopConversationPolling();
+            return;
+        }
+
+        const data = await this.request(`/api/conversations/${conversationId}`);
+        if (!data.success) {
+            return;
+        }
+
+        const panel = document.getElementById('dashboardConversationPanel');
+        if (panel) {
+            panel.innerHTML = this.renderDashboardConversationPanel(data.conversation);
+        }
+    }
+
+    startDashboardConversationPolling(conversationId) {
+        this.stopConversationPolling();
+        this.chatPoller = window.setInterval(() => {
+            this.refreshDashboardConversation(conversationId);
+        }, 5000);
+    }
+
+    async handlePurchase(itemId) {
+        if (!window.confirm('Confirm purchase for this item?')) {
+            return;
+        }
+
+        const data = await this.request(`/api/purchase/${itemId}`, {
+            method: 'POST',
+            body: {},
+        });
+
+        if (!data.success) {
+            this.showError(data.error || 'Purchase failed.');
+            return;
+        }
+
+        this.showSuccess('Purchase completed successfully.');
+        this.navigateTo('dashboard');
+    }
 
     async handleLogout() {
-        try {
-            const response = await fetch('/api/auth/logout', { method: 'POST' });
-            const data = await response.json();
+        const data = await this.request('/api/auth/logout', {
+            method: 'POST',
+            body: {},
+        });
 
-            if (data.success) {
-                this.currentUser = null;
-                this.updateNavigation();
-                this.showSuccess('Logged out successfully');
-                setTimeout(() => this.navigateTo('home'), 1500);
-            }
-        } catch (error) {
-            console.error('Logout error:', error);
-            this.showError('Error logging out');
+        if (!data.success) {
+            this.showError(data.error || 'Logout failed.');
+            return;
         }
+
+        this.currentUser = null;
+        this.activeConversationId = null;
+        this.updateNavigation();
+        this.showSuccess('Logged out.');
+        this.navigateTo('login');
     }
 
-    // ============================================
-    // Utility Functions
-    // ============================================
+    showInlineError(elementId, message) {
+        const element = document.getElementById(elementId);
+        if (!element) {
+            this.showError(message);
+            return;
+        }
 
-    escapeHtml(text) {
-        const map = {
+        element.textContent = message;
+        element.style.display = 'block';
+    }
+
+    showError(message) {
+        this.showNotification(message, 'error');
+    }
+
+    showSuccess(message) {
+        this.showNotification(message, 'success');
+    }
+
+    showNotification(message, type) {
+        const notification = document.createElement('div');
+        notification.className = `notification ${type}`;
+        notification.textContent = message;
+        document.body.appendChild(notification);
+
+        window.setTimeout(() => {
+            notification.remove();
+        }, 3500);
+    }
+
+    escapeHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, (character) => ({
             '&': '&amp;',
             '<': '&lt;',
             '>': '&gt;',
             '"': '&quot;',
-            "'": '&#039;'
-        };
-        return text.replace(/[&<>"']/g, m => map[m]);
+            "'": '&#039;',
+        }[character]));
     }
 
-    showError(message) {
-        console.error(message);
-        const notification = document.createElement('div');
-        notification.className = 'notification error';
-        notification.textContent = message;
-        document.body.appendChild(notification);
-        
-        setTimeout(() => notification.remove(), 4000);
-    }
-
-    showSuccess(message) {
-        console.log(message);
-        const notification = document.createElement('div');
-        notification.className = 'notification success';
-        notification.textContent = message;
-        document.body.appendChild(notification);
-        
-        setTimeout(() => notification.remove(), 3000);
+    escapeForSingleQuote(value) {
+        return String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     }
 }
 
-// ============================================
-// Initialize App on Page Load
-// ============================================
 
 let app;
-document.addEventListener('DOMContentLoaded', () => {
-    app = new SecondHandApp();
+document.addEventListener('DOMContentLoaded', async () => {
+    app = new UwaMarketplaceApp();
+    await app.init();
 });

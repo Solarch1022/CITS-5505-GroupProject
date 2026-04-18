@@ -854,3 +854,349 @@ main {
     }
 }
 
+/* ============================================
+   UWA CAMPUS EXTENSIONS
+   ============================================ */
+
+.hero-campus {
+    background: linear-gradient(135deg, #003b5c 0%, #0f6a88 55%, #d9a441 100%);
+    display: grid;
+    gap: 2rem;
+    grid-template-columns: 1.4fr 1fr;
+    text-align: left;
+    align-items: stretch;
+}
+
+.hero-copy,
+.hero-panel {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.hero-kicker {
+    display: inline-block;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 1rem;
+    opacity: 0.85;
+}
+
+.hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.hero-panel {
+    background: rgba(255, 255, 255, 0.16);
+    padding: 1.5rem;
+    border-radius: 12px;
+    backdrop-filter: blur(6px);
+}
+
+.hero-panel h3 {
+    margin-bottom: 1rem;
+}
+
+.hero-points {
+    padding-left: 1.2rem;
+    display: grid;
+    gap: 0.75rem;
+}
+
+.section-heading {
+    margin-bottom: 1.25rem;
+}
+
+.section-heading p,
+.panel-text {
+    color: #5f6b7a;
+}
+
+.info-banner {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.info-banner > div {
+    background: white;
+    padding: 1rem 1.25rem;
+    border-left: 4px solid #003b5c;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.item-tags,
+.item-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-bottom: 0.65rem;
+}
+
+.campus-pill,
+.rating-pill {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 0.28rem 0.65rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.campus-pill {
+    background: #d7f1e1;
+    color: #166534;
+}
+
+.campus-pill.pending {
+    background: #fff4d6;
+    color: #8a5a00;
+}
+
+.rating-pill {
+    background: #e8eef7;
+    color: #184a7c;
+}
+
+.metric-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.metric-card {
+    background: #f5f8fb;
+    border: 1px solid #d7e4f0;
+    padding: 1rem;
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.metric-value {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: #003b5c;
+}
+
+.metric-label {
+    color: #64748b;
+    font-size: 0.9rem;
+}
+
+.empty-state {
+    background: white;
+    border: 1px dashed #c5d1dc;
+    border-radius: 10px;
+    padding: 2rem;
+    text-align: center;
+    color: #5f6b7a;
+}
+
+.empty-state.compact {
+    padding: 1rem;
+}
+
+.status.status-sold {
+    background-color: #95a5a6;
+}
+
+.chat-card {
+    background: white;
+    border-radius: 12px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.chat-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+}
+
+.chat-status {
+    background: #edf6ff;
+    color: #0f4c81;
+    border-radius: 999px;
+    padding: 0.4rem 0.7rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.chat-form {
+    display: grid;
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.message-thread {
+    display: grid;
+    gap: 0.85rem;
+    max-height: 420px;
+    overflow-y: auto;
+    padding-right: 0.25rem;
+}
+
+.message-bubble {
+    max-width: 78%;
+    border-radius: 12px;
+    padding: 0.85rem 1rem;
+    display: grid;
+    gap: 0.3rem;
+}
+
+.message-bubble.mine {
+    margin-left: auto;
+    background: #0f4c81;
+    color: white;
+}
+
+.message-bubble.theirs {
+    background: #f1f5f9;
+    color: #1f2937;
+}
+
+.message-author {
+    font-size: 0.8rem;
+    font-weight: 700;
+}
+
+.message-body {
+    white-space: pre-wrap;
+    line-height: 1.5;
+}
+
+.message-time {
+    font-size: 0.75rem;
+    opacity: 0.75;
+}
+
+.dashboard-hero {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.dashboard-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: flex-start;
+}
+
+.dashboard-grid {
+    display: grid;
+    gap: 1.25rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-top: 2rem;
+}
+
+.dashboard-list {
+    display: grid;
+    gap: 0.85rem;
+}
+
+.dashboard-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 1rem;
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.dashboard-card p {
+    color: #64748b;
+    margin-top: 0.25rem;
+}
+
+.dashboard-card-meta {
+    display: grid;
+    gap: 0.35rem;
+    font-weight: 600;
+    color: #003b5c;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.conversation-layout {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 1rem;
+    align-items: start;
+}
+
+.conversation-list {
+    display: grid;
+    gap: 0.75rem;
+}
+
+.conversation-item {
+    width: 100%;
+    background: #f8fafc;
+    border: 1px solid #d7e4f0;
+    border-radius: 10px;
+    padding: 1rem;
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    cursor: pointer;
+    text-align: left;
+}
+
+.conversation-item p {
+    color: #64748b;
+    margin-top: 0.2rem;
+}
+
+.conversation-item.active {
+    border-color: #0f4c81;
+    background: #edf6ff;
+}
+
+.auth-card-wide {
+    max-width: 480px;
+}
+
+@media (max-width: 768px) {
+    .hero-campus,
+    .info-banner,
+    .dashboard-grid,
+    .conversation-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .metric-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .dashboard-hero,
+    .chat-header {
+        flex-direction: column;
+    }
+
+    .hero-actions,
+    .dashboard-actions {
+        width: 100%;
+    }
+
+    .hero-actions .btn,
+    .dashboard-actions .btn {
+        width: 100%;
+    }
+
+    .message-bubble {
+        max-width: 100%;
+    }
+}
+

@@ -1,63 +1,28 @@
 #!/usr/bin/env python
-"""Integration test for SecondHand Market application"""
+"""Simple smoke test for the current SPA + API architecture."""
 
 from src.app import create_app
 
-app = create_app('development')
 
-print("Testing Flask application routes...")
+def main():
+    app = create_app('testing')
 
-with app.test_client() as client:
-    # Test home page
-    response = client.get('/')
-    assert response.status_code == 200, f"Home page returned {response.status_code}"
-    print('✓ GET / - Home page')
-    
-    # Test register page
-    response = client.get('/register')
-    assert response.status_code == 200
-    print('✓ GET /register - Registration page')
-    
-    # Test register with data
-    response = client.post('/register', data={
-        'username': 'testuser',
-        'email': 'test@example.com',
-        'password': 'testpass123',
-        'full_name': 'Test User'
-    }, follow_redirects=True)
-    assert response.status_code == 200
-    print('✓ POST /register - User registration')
-    
-    # Test login page
-    response = client.get('/login')
-    assert response.status_code == 200
-    print('✓ GET /login - Login page')
-    
-    # Test login with credentials
-    response = client.post('/login', data={
-        'username': 'testuser',
-        'password': 'testpass123'
-    }, follow_redirects=True)
-    assert response.status_code == 200
-    print('✓ POST /login - User login')
-    
-    # Test browse page
-    response = client.get('/browse')
-    assert response.status_code == 200
-    print('✓ GET /browse - Browse items')
-    
-    # Test sell page (requires login, will redirect)
-    response = client.get('/sell')
-    assert response.status_code == 200  # Redirects to login
-    print('✓ GET /sell - Sell item (requires login)')
-    
-    # Test dashboard (requires login)
-    response = client.get('/dashboard')
-    assert response.status_code == 302 or response.status_code == 200
-    print('✓ GET /dashboard - User dashboard')
+    with app.test_client() as client:
+        response = client.get('/')
+        assert response.status_code == 200, f'Expected 200 for /, got {response.status_code}'
+        assert 'UWA SecondHand' in response.get_data(as_text=True)
+        print('PASS: GET / serves the SPA shell')
 
-print('\n✓✓✓ All route tests passed! ✓✓✓')
-print('\nThe application is ready to use!')
-print('Run: make run')
-print('Then visit: http://localhost:8000')
+        constants = client.get('/api/constants')
+        assert constants.status_code == 200, f'Expected 200 for /api/constants, got {constants.status_code}'
+        print('PASS: GET /api/constants returns marketplace constants')
 
+        current_user = client.get('/api/auth/current-user')
+        assert current_user.status_code == 200, f'Expected 200 for /api/auth/current-user, got {current_user.status_code}'
+        print('PASS: GET /api/auth/current-user returns session payload')
+
+    print('\nSmoke test complete.')
+
+
+if __name__ == '__main__':
+    main()
