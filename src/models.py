@@ -60,6 +60,7 @@ class Item(db.Model):
     category = db.Column(db.String(50), nullable=False, index=True)
     condition = db.Column(db.String(20), nullable=False)  # new, like_new, good, fair
     seller_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    is_draft = db.Column(db.Boolean, default=False, nullable=False, index=True)
     is_sold = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -40,20 +40,71 @@
                 {% if dashboard.listings %}
                     <div class="dashboard-list">
                         {% for item in dashboard.listings %}
-                            <div class="dashboard-card">
-                                <div>
-                                    <strong>{{ item.title }}</strong>
-                                    <p>{{ item.description_preview }}</p>
+                            <div class="dashboard-card dashboard-card-rich">
+                                <div class="dashboard-card-body">
+                                    <div>
+                                        <strong>{{ item.title }}</strong>
+                                        <p>{{ item.description_preview }}</p>
+                                    </div>
+                                    <div class="dashboard-card-meta">
+                                        <span>${{ '%.2f'|format(item.price) }}</span>
+                                        <span class="dashboard-status{% if item.is_sold %} sold{% endif %}">{{ item.status_label }}</span>
+                                    </div>
                                 </div>
-                                <div class="dashboard-card-meta">
-                                    <span>${{ '%.2f'|format(item.price) }}</span>
-                                    <span>{% if item.is_sold %}Sold{% else %}Active{% endif %}</span>
+                                <div class="dashboard-card-actions">
+                                    <a href="{{ url_for('item_detail_page', item_id=item.id) }}" class="btn btn-sm btn-ghost">View</a>
+                                    {% if not item.is_sold %}
+                                        <a href="{{ url_for('edit_listing_page', item_id=item.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+                                        <button
+                                            type="button"
+                                            class="btn btn-sm btn-danger-soft"
+                                            data-unlist-launch
+                                            data-item-title="{{ item.title }}"
+                                            data-action-url="{{ url_for('unlist_listing_page', item_id=item.id) }}"
+                                        >
+                                            Unlist
+                                        </button>
+                                    {% endif %}
                                 </div>
                             </div>
                         {% endfor %}
                     </div>
                 {% else %}
                     <div class="empty-state compact">You have not posted any listings yet.</div>
+                {% endif %}
+            </section>
+
+            <section class="dashboard-section" id="drafts">
+                <div class="section-heading">
+                    <h2>Draft box ({{ dashboard.drafts|length }})</h2>
+                    <p>Keep unfinished listings here until you are ready to publish them.</p>
+                </div>
+                {% if dashboard.drafts %}
+                    <div class="dashboard-list">
+                        {% for item in dashboard.drafts %}
+                            <div class="dashboard-card dashboard-card-rich">
+                                <div class="dashboard-card-body">
+                                    <div>
+                                        <strong>{{ item.title }}</strong>
+                                        <p>{{ item.description_preview }}</p>
+                                    </div>
+                                    <div class="dashboard-card-meta">
+                                        <span>{% if item.price %}${{ '%.2f'|format(item.price) }}{% else %}No price yet{% endif %}</span>
+                                        <span class="dashboard-status draft">Draft</span>
+                                    </div>
+                                </div>
+                                <div class="dashboard-card-actions">
+                                    <a href="{{ url_for('edit_listing_page', item_id=item.id) }}" class="btn btn-sm btn-primary">Edit draft</a>
+                                    <form method="post" action="{{ url_for('delete_listing_page', item_id=item.id) }}">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                        <button type="submit" class="btn btn-sm btn-danger-soft">Delete</button>
+                                    </form>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="empty-state compact">No drafts yet. Save a listing draft from the sell page when you are not ready to publish.</div>
                 {% endif %}
             </section>
 
@@ -156,4 +207,19 @@
             </div>
         </section>
     </section>
+
+    <div class="modal-backdrop hidden" id="unlistModalBackdrop">
+        <div class="decision-modal" role="dialog" aria-modal="true" aria-labelledby="unlistModalTitle">
+            <h3 id="unlistModalTitle">Unlist this product?</h3>
+            <p id="unlistModalText">Choose whether to move this listing into the draft box or delete it permanently.</p>
+            <form method="post" action="" id="unlistDecisionForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <div class="decision-actions">
+                    <button type="submit" name="decision" value="draft" class="btn btn-secondary">Move to drafts</button>
+                    <button type="submit" name="decision" value="delete" class="btn btn-danger">Delete permanently</button>
+                    <button type="button" class="btn btn-ghost" data-modal-close>Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
 {% endblock %}

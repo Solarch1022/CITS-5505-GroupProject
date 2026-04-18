@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, session, url_for
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
-from sqlalchemy import or_
+from sqlalchemy import inspect, or_, text
 from werkzeug.utils import secure_filename
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -22,6 +22,7 @@ UWA_STUDENT_DOMAIN = '@student.uwa.edu.au'
 MAX_MESSAGE_LENGTH = 600
 MAX_IMAGES_PER_ITEM = 6
 ALLOWED_IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.gif'}
+DRAFT_TITLE_PLACEHOLDER = 'Untitled draft'
 
 
 def is_valid_uwa_student_email(email):
@@ -99,6 +100,30 @@ def create_app(config_name='development'):
                 if not os.listdir(parent_dir):
                     os.rmdir(parent_dir)
 
+    def get_absolute_upload_path(relative_path):
+        return os.path.join(app.static_folder, *relative_path.split('/'))
+
+    def get_item_saved_paths(item):
+        return [get_absolute_upload_path(image.file_path) for image in item.images]
+
+    def delete_item_and_assets(item):
+        saved_paths = get_item_saved_paths(item)
+        db.session.delete(item)
+        db.session.commit()
+        remove_saved_files(saved_paths)
+
+    def ensure_schema_supports_drafts():
+        inspector = inspect(db.engine)
+        if 'items' not in inspector.get_table_names():
+            return
+
+        column_names = {column['name'] for column in inspector.get_columns('items')}
+        if 'is_draft' in column_names:
+            return
+
+        with db.engine.begin() as connection:
+            connection.execute(text('ALTER TABLE items ADD COLUMN is_draft BOOLEAN NOT NULL DEFAULT 0'))
+
     def save_item_images(item, image_files):
         image_records = []
         saved_paths = []
@@ -160,7 +185,7 @@ def create_app(config_name='development'):
     def get_user_reputation(user):
         completed_sales = Transaction.query.filter_by(seller_id=user.id, status='completed').count()
         completed_purchases = Transaction.query.filter_by(buyer_id=user.id, status='completed').count()
-        active_listings = Item.query.filter_by(seller_id=user.id, is_sold=False).count()
+        active_listings = Item.query.filter_by(seller_id=user.id, is_sold=False, is_draft=False).count()
         total_deals = completed_sales + completed_purchases
 
         if total_deals == 0:
@@ -192,6 +217,8 @@ def create_app(config_name='development'):
         return payload
 
     def serialize_item(item, include_description=True):
+        title = item.title.strip() if item.title else ''
+        description = item.description or ''
         image_payload = [
             {
                 'id': image.id,
@@ -202,20 +229,23 @@ def create_app(config_name='development'):
         ]
         payload = {
             'id': item.id,
-            'title': item.title,
+            'title': title or DRAFT_TITLE_PLACEHOLDER,
+            'raw_title': title,
             'price': item.price,
             'category': item.category,
             'condition': item.condition,
+            'is_draft': item.is_draft,
             'is_sold': item.is_sold,
+            'status_label': 'Draft' if item.is_draft else ('Sold' if item.is_sold else 'Active'),
             'created_at': item.created_at.isoformat(),
             'created_at_display': format_timestamp(item.created_at),
             'seller': serialize_user(item.seller),
             'images': image_payload,
             'primary_image_url': image_payload[0]['url'] if image_payload else None,
-            'description_preview': item.description[:90] + '...' if len(item.description) > 90 else item.description,
+            'description_preview': description[:90] + '...' if len(description) > 90 else (description or 'No description yet.'),
         }
         if include_description:
-            payload['description'] = item.description
+            payload['description'] = description
         return payload
 
     def serialize_message(message):
@@ -267,6 +297,7 @@ def create_app(config_name='development'):
 
     def get_filtered_item_query(category='', search='', include_sold=False):
         query = Item.query
+        query = query.filter_by(is_draft=False)
         if not include_sold:
             query = query.filter_by(is_sold=False)
         if category:
@@ -281,13 +312,25 @@ def create_app(config_name='development'):
         return query
 
     def build_dashboard_payload(user):
-        user_items = Item.query.filter_by(seller_id=user.id).order_by(Item.created_at.desc()).all()
+        user_items = (
+            Item.query
+            .filter_by(seller_id=user.id, is_draft=False)
+            .order_by(Item.created_at.desc())
+            .all()
+        )
+        drafts = (
+            Item.query
+            .filter_by(seller_id=user.id, is_draft=True)
+            .order_by(Item.updated_at.desc(), Item.created_at.desc())
+            .all()
+        )
         purchases = Transaction.query.filter_by(buyer_id=user.id).order_by(Transaction.created_at.desc()).all()
         sales = Transaction.query.filter_by(seller_id=user.id).order_by(Transaction.created_at.desc()).all()
 
         return {
             'user': serialize_user(user, include_email=True),
             'listings': [serialize_item(item) for item in user_items],
+            'drafts': [serialize_item(item) for item in drafts],
             'purchases': [
                 {
                     'id': transaction.id,
@@ -339,6 +382,17 @@ def create_app(config_name='development'):
         if not item:
             return None, (jsonify({'success': False, 'error': 'Item not found'}), 404)
         return item, None
+
+    def get_owned_item_or_404(item_id, *, allow_sold=False):
+        item = get_item_or_none(item_id)
+        if not item or item.seller_id != current_user.id:
+            abort(404)
+
+        if item.is_sold and not allow_sold:
+            flash('Sold listings can no longer be edited.', 'error')
+            return None
+
+        return item
 
     def get_conversation_or_none(conversation_id):
         conversation = db.session.get(Conversation, conversation_id)
@@ -426,6 +480,25 @@ def create_app(config_name='development'):
             ),
         }
 
+    def build_listing_form_data(item=None, overrides=None):
+        price_value = ''
+        if item and not (item.is_draft and item.price == 0):
+            price_value = item.price
+
+        form_data = {
+            'title': item.title if item else '',
+            'description': item.description if item else '',
+            'price': price_value,
+            'category': item.category if item else '',
+            'condition': item.condition if item else '',
+        }
+
+        if overrides:
+            for key, value in overrides.items():
+                form_data[key] = value
+
+        return form_data
+
     def create_user_account(username, email, password, full_name):
         username = username.strip()
         email = email.strip().lower()
@@ -467,15 +540,38 @@ def create_app(config_name='development'):
 
         return user, None, 200
 
-    def create_item_listing(title, description, price, category, condition, seller, image_files):
+    def normalize_listing_payload(title, description, price, category, condition, *, allow_partial):
         title = title.strip()
         description = description.strip()
         category = category.strip()
         condition = condition.strip()
-        image_files = image_files or []
+
+        if allow_partial:
+            if category and category not in ITEM_CATEGORIES:
+                return None, 'Invalid category', 400
+            if condition and condition not in ITEM_CONDITIONS:
+                return None, 'Invalid condition', 400
+
+            if price in (None, ''):
+                price_value = 0.0
+            else:
+                try:
+                    price_value = float(price)
+                    if price_value < 0:
+                        raise ValueError
+                except (TypeError, ValueError):
+                    return None, 'Draft price must be a valid number', 400
+
+            return {
+                'title': title,
+                'description': description,
+                'price': price_value,
+                'category': category,
+                'condition': condition,
+            }, None, 200
 
         if not all([title, description, price, category, condition]):
-            return None, 'All fields are required', 400
+            return None, 'All fields are required to publish a listing', 400
 
         if len(title) < 4:
             return None, 'Item title must be at least 4 characters', 400
@@ -496,38 +592,79 @@ def create_app(config_name='development'):
         except (TypeError, ValueError):
             return None, 'Price must be a positive number', 400
 
+        return {
+            'title': title,
+            'description': description,
+            'price': price_value,
+            'category': category,
+            'condition': condition,
+        }, None, 200
+
+    def save_listing(item, title, description, price, category, condition, seller, image_files, *, publish):
+        image_files = image_files or []
+
+        normalized, error, status = normalize_listing_payload(
+            title,
+            description,
+            price,
+            category,
+            condition,
+            allow_partial=not publish,
+        )
+        if error:
+            return None, error, status
+
         if len(image_files) > MAX_IMAGES_PER_ITEM:
             return None, f'You can upload up to {MAX_IMAGES_PER_ITEM} images per listing', 400
 
-        saved_paths = []
+        is_new = item is None
+        if item is None:
+            item = Item(seller_id=seller.id)
+        elif item.seller_id != seller.id:
+            return None, 'You cannot edit this listing', 403
+
+        if item.is_sold:
+            return None, 'Sold listings can no longer be edited', 400
+
+        new_saved_paths = []
+        old_saved_paths = []
         try:
-            item = Item(
-                title=title,
-                description=description,
-                price=price_value,
-                category=category,
-                condition=condition,
-                seller_id=seller.id,
-            )
-            db.session.add(item)
-            db.session.flush()
+            item.title = normalized['title']
+            item.description = normalized['description']
+            item.price = normalized['price']
+            item.category = normalized['category']
+            item.condition = normalized['condition']
+            item.is_draft = not publish
+
+            if is_new:
+                db.session.add(item)
+                db.session.flush()
 
             if image_files:
-                image_records, saved_paths = save_item_images(item, image_files)
+                old_saved_paths = get_item_saved_paths(item)
+                for existing_image in list(item.images):
+                    db.session.delete(existing_image)
+
+                image_records, new_saved_paths = save_item_images(item, image_files)
                 db.session.add_all(image_records)
 
             db.session.commit()
-            return item, None, 201
+            if old_saved_paths:
+                remove_saved_files(old_saved_paths)
+            return item, None, 201 if is_new else 200
         except ValueError as error:
             db.session.rollback()
-            remove_saved_files(saved_paths)
+            remove_saved_files(new_saved_paths)
             return None, str(error), 400
         except OSError:
             db.session.rollback()
-            remove_saved_files(saved_paths)
+            remove_saved_files(new_saved_paths)
             return None, 'Uploaded images could not be saved', 500
 
     def complete_purchase(item, buyer):
+        if item.is_draft:
+            return None, 'Draft listings cannot be purchased', 400
+
         if item.is_sold:
             return None, 'Item already sold', 400
 
@@ -548,6 +685,12 @@ def create_app(config_name='development'):
         return transaction, None, 200
 
     def create_or_resume_conversation(item, buyer, message_body=''):
+        if item.is_draft:
+            return None, 'Draft listings are not visible to buyers yet', 400
+
+        if item.is_sold:
+            return None, 'Sold listings cannot receive new enquiries', 400
+
         if buyer.id == item.seller_id:
             return None, 'Sellers cannot create a chat with themselves', 400
 
@@ -605,12 +748,13 @@ def create_app(config_name='development'):
 
     with app.app_context():
         db.create_all()
+        ensure_schema_supports_drafts()
 
     @app.route('/')
     def index():
         latest_items = (
             Item.query
-            .filter_by(is_sold=False)
+            .filter_by(is_sold=False, is_draft=False)
             .order_by(Item.created_at.desc())
             .limit(6)
             .all()
@@ -694,7 +838,9 @@ def create_app(config_name='development'):
     @csrf_protect
     def sell_item_page():
         if request.method == 'POST':
-            item, error, status = create_item_listing(
+            publish = request.form.get('intent', 'publish') == 'publish'
+            item, error, status = save_listing(
+                None,
                 request.form.get('title', ''),
                 request.form.get('description', ''),
                 request.form.get('price', ''),
@@ -702,15 +848,116 @@ def create_app(config_name='development'):
                 request.form.get('condition', ''),
                 current_user,
                 normalize_uploaded_files(request.files.getlist('images')),
+                publish=publish,
             )
             if error:
                 flash(error, 'error')
-                return render_template('sell_item.html', form_data=request.form.to_dict()), status
+                return render_template(
+                    'sell_item.html',
+                    form_data=request.form.to_dict(),
+                    listing=None,
+                    is_edit_mode=False,
+                ), status
 
-            flash('Item listed successfully.', 'success')
-            return redirect(url_for('item_detail_page', item_id=item.id))
+            if publish:
+                flash('Item listed successfully.', 'success')
+                return redirect(url_for('item_detail_page', item_id=item.id))
 
-        return render_template('sell_item.html', form_data={})
+            flash('Draft saved to your draft box.', 'success')
+            return redirect(url_for('dashboard_page') + '#drafts')
+
+        return render_template('sell_item.html', form_data={}, listing=None, is_edit_mode=False)
+
+    @app.route('/sell/<int:item_id>/edit', methods=['GET', 'POST'])
+    @login_required
+    @csrf_protect
+    def edit_listing_page(item_id):
+        item = get_owned_item_or_404(item_id)
+        if item is None:
+            return redirect(url_for('dashboard_page'))
+
+        if request.method == 'POST':
+            publish = request.form.get('intent', 'publish') == 'publish'
+            updated_item, error, status = save_listing(
+                item,
+                request.form.get('title', ''),
+                request.form.get('description', ''),
+                request.form.get('price', ''),
+                request.form.get('category', ''),
+                request.form.get('condition', ''),
+                current_user,
+                normalize_uploaded_files(request.files.getlist('images')),
+                publish=publish,
+            )
+            if error:
+                flash(error, 'error')
+                return render_template(
+                    'sell_item.html',
+                    form_data=request.form.to_dict(),
+                    listing=serialize_item(item),
+                    is_edit_mode=True,
+                ), status
+
+            if publish:
+                flash('Listing updated and published.', 'success')
+                return redirect(url_for('item_detail_page', item_id=updated_item.id))
+
+            flash('Draft updated.', 'success')
+            return redirect(url_for('dashboard_page') + '#drafts')
+
+        return render_template(
+            'sell_item.html',
+            form_data=build_listing_form_data(item),
+            listing=serialize_item(item),
+            is_edit_mode=True,
+        )
+
+    @app.route('/listings/<int:item_id>/unlist', methods=['POST'])
+    @login_required
+    @csrf_protect
+    def unlist_listing_page(item_id):
+        item = get_owned_item_or_404(item_id, allow_sold=True)
+        if item is None:
+            return redirect(url_for('dashboard_page'))
+
+        if item.is_draft:
+            flash('This listing is already in your draft box.', 'error')
+            return redirect(url_for('dashboard_page') + '#drafts')
+
+        if item.is_sold:
+            flash('Sold listings cannot be moved back to drafts or deleted.', 'error')
+            return redirect(url_for('dashboard_page'))
+
+        decision = request.form.get('decision', '').strip().lower()
+        if decision == 'draft':
+            item.is_draft = True
+            db.session.commit()
+            flash('Listing moved to your draft box.', 'success')
+            return redirect(url_for('dashboard_page') + '#drafts')
+
+        if decision == 'delete':
+            delete_item_and_assets(item)
+            flash('Listing deleted permanently.', 'success')
+            return redirect(url_for('dashboard_page'))
+
+        flash('Choose whether to move the listing into drafts or delete it.', 'error')
+        return redirect(url_for('dashboard_page'))
+
+    @app.route('/listings/<int:item_id>/delete', methods=['POST'])
+    @login_required
+    @csrf_protect
+    def delete_listing_page(item_id):
+        item = get_owned_item_or_404(item_id, allow_sold=True)
+        if item is None:
+            return redirect(url_for('dashboard_page'))
+
+        if item.is_sold:
+            flash('Sold listings cannot be deleted.', 'error')
+            return redirect(url_for('dashboard_page'))
+
+        delete_item_and_assets(item)
+        flash('Listing deleted permanently.', 'success')
+        return redirect(url_for('dashboard_page'))
 
     @app.route('/purchase/<int:item_id>', methods=['POST'])
     @login_required
@@ -733,6 +980,13 @@ def create_app(config_name='development'):
         item = get_item_or_none(item_id)
         if not item:
             abort(404)
+
+        if item.is_draft:
+            if not current_user.is_authenticated or current_user.id != item.seller_id:
+                abort(404)
+
+            flash('This listing is currently saved as a draft. Edit it to publish or continue working on it.', 'error')
+            return redirect(url_for('edit_listing_page', item_id=item.id))
 
         return render_template(
             'item_detail.html',
@@ -886,6 +1140,9 @@ def create_app(config_name='development'):
         if error_response:
             return error_response
 
+        if item.is_draft and (not current_user.is_authenticated or current_user.id != item.seller_id):
+            return jsonify({'success': False, 'error': 'Item not found'}), 404
+
         seller_conversation_count = Conversation.query.filter_by(seller_id=item.seller_id).count()
         return jsonify({
             'success': True,
@@ -912,7 +1169,8 @@ def create_app(config_name='development'):
         if not data:
             return jsonify({'success': False, 'error': 'Invalid JSON'}), 400
 
-        item, error, status = create_item_listing(
+        item, error, status = save_listing(
+            None,
             data.get('title', ''),
             data.get('description', ''),
             data.get('price', ''),
@@ -920,6 +1178,7 @@ def create_app(config_name='development'):
             data.get('condition', ''),
             current_user,
             image_files,
+            publish=True,
         )
         if error:
             return jsonify({'success': False, 'error': error}), status
@@ -969,6 +1228,9 @@ def create_app(config_name='development'):
         item, error_response = get_item_or_json_404(item_id)
         if error_response:
             return error_response
+
+        if item.is_draft:
+            return jsonify({'success': False, 'error': 'Draft listings do not have conversations'}), 400
 
         if current_user.id == item.seller_id:
             conversations = (

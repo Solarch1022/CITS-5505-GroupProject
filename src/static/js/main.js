@@ -338,8 +338,51 @@ function attachChatWidgets() {
     });
 }
 
+function attachUnlistModal() {
+    const backdrop = document.getElementById('unlistModalBackdrop');
+    const form = document.getElementById('unlistDecisionForm');
+    const text = document.getElementById('unlistModalText');
+    const launchButtons = document.querySelectorAll('[data-unlist-launch]');
+    const closeButtons = document.querySelectorAll('[data-modal-close]');
+
+    if (!backdrop || !form || !text || !launchButtons.length) {
+        return;
+    }
+
+    const closeModal = () => {
+        backdrop.classList.add('hidden');
+    };
+
+    launchButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+            const title = button.dataset.itemTitle || 'this listing';
+            const actionUrl = button.dataset.actionUrl || '';
+            form.action = actionUrl;
+            text.textContent = `Choose whether to move "${title}" into the draft box or delete it permanently.`;
+            backdrop.classList.remove('hidden');
+        });
+    });
+
+    closeButtons.forEach((button) => {
+        button.addEventListener('click', closeModal);
+    });
+
+    backdrop.addEventListener('click', (event) => {
+        if (event.target === backdrop) {
+            closeModal();
+        }
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && !backdrop.classList.contains('hidden')) {
+            closeModal();
+        }
+    });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     attachSellImagePicker();
     attachItemGallery();
     attachChatWidgets();
+    attachUnlistModal();
 });

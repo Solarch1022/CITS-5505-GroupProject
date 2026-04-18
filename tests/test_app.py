@@ -29,6 +29,12 @@ class MarketplaceAppTestCase(unittest.TestCase):
             headers['X-CSRF-Token'] = csrf_token
         return self.client.post(url, json=payload, headers=headers)
 
+    def post_form(self, url, payload, csrf_token=None, follow_redirects=False):
+        data = dict(payload)
+        if csrf_token:
+            data['csrf_token'] = csrf_token
+        return self.client.post(url, data=data, follow_redirects=follow_redirects)
+
     def register_user(self, username, email, password='testpass123', full_name='Test User'):
         csrf_token = self.get_csrf_token()
         return self.post_json('/api/auth/register', {
@@ -117,6 +123,81 @@ class MarketplaceAppTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertTrue(data['success'])
         self.assertEqual(data['item']['title'], 'Desk Lamp')
+
+    def test_save_draft_hides_listing_from_public_browse(self):
+        self.register_user('seller', 'seller@student.uwa.edu.au')
+        self.login_user('seller')
+        csrf_token = self.get_csrf_token()
+
+        response = self.post_form('/sell', {
+            'title': 'Draft textbook bundle',
+            'description': 'Need to check if all notes are still inside before publishing.',
+            'price': '',
+            'category': '',
+            'condition': '',
+            'intent': 'draft',
+        }, csrf_token=csrf_token)
+
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            draft_item = Item.query.filter_by(title='Draft textbook bundle').first()
+            self.assertIsNotNone(draft_item)
+            self.assertTrue(draft_item.is_draft)
+
+        browse = self.client.get('/browse')
+        self.assertNotIn('Draft textbook bundle', browse.get_data(as_text=True))
+
+    def test_unlist_moves_listing_into_draft_box(self):
+        with self.app.app_context():
+            seller = self.create_user('seller', 'seller@student.uwa.edu.au')
+            item = Item(
+                title='Lamp',
+                description='Working desk lamp for sale.',
+                price=18,
+                category='Electronics',
+                condition='Good',
+                seller_id=seller.id,
+            )
+            db.session.add(item)
+            db.session.commit()
+            item_id = item.id
+
+        self.login_user('seller')
+        csrf_token = self.get_csrf_token()
+        response = self.post_form(f'/listings/{item_id}/unlist', {
+            'decision': 'draft',
+        }, csrf_token=csrf_token)
+
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            updated_item = db.session.get(Item, item_id)
+            self.assertTrue(updated_item.is_draft)
+
+    def test_delete_listing_removes_item_record(self):
+        with self.app.app_context():
+            seller = self.create_user('seller', 'seller@student.uwa.edu.au')
+            item = Item(
+                title='Mouse',
+                description='Wireless mouse in good condition.',
+                price=12,
+                category='Electronics',
+                condition='Good',
+                seller_id=seller.id,
+            )
+            db.session.add(item)
+            db.session.commit()
+            item_id = item.id
+
+        self.login_user('seller')
+        csrf_token = self.get_csrf_token()
+        response = self.post_form(f'/listings/{item_id}/delete', {}, csrf_token=csrf_token)
+
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            self.assertIsNone(db.session.get(Item, item_id))
 
     def test_buyer_can_start_conversation_and_send_message(self):
         with self.app.app_context():

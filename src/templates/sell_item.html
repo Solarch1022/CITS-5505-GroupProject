@@ -1,34 +1,59 @@
 {% extends 'base.html' %}
 
-{% block title %}UWA SecondHand - Sell Item{% endblock %}
+{% block title %}
+    {% if is_edit_mode %}
+        UWA SecondHand - Edit Listing
+    {% else %}
+        UWA SecondHand - Sell Item
+    {% endif %}
+{% endblock %}
 
 {% block content %}
     <section class="form-container">
-        <h1>List a new item</h1>
-        <p class="panel-text">Keep descriptions practical so buyers know condition, pick-up area, and timing.</p>
+        <h1>
+            {% if is_edit_mode %}
+                {% if listing and listing.is_draft %}Edit draft{% else %}Edit listing{% endif %}
+            {% else %}
+                List a new item
+            {% endif %}
+        </h1>
+        <p class="panel-text">
+            {% if is_edit_mode and listing and listing.is_draft %}
+                Keep refining the details until the listing is ready to publish to the campus marketplace.
+            {% else %}
+                Keep descriptions practical so buyers know condition, pick-up area, and timing.
+            {% endif %}
+        </p>
 
-        <form method="post" action="{{ url_for('sell_item_page') }}" enctype="multipart/form-data" id="sellItemForm" data-sell-form data-max-images="{{ max_images_per_item }}">
+        <form
+            method="post"
+            action="{% if is_edit_mode and listing %}{{ url_for('edit_listing_page', item_id=listing.id) }}{% else %}{{ url_for('sell_item_page') }}{% endif %}"
+            enctype="multipart/form-data"
+            id="sellItemForm"
+            data-sell-form
+            data-max-images="{{ max_images_per_item }}"
+        >
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
             <div class="form-group">
                 <label for="itemTitle">Title</label>
-                <input type="text" id="itemTitle" name="title" minlength="4" value="{{ form_data.get('title', '') }}" required>
+                <input type="text" id="itemTitle" name="title" minlength="1" value="{{ form_data.get('title', '') }}">
             </div>
 
             <div class="form-group">
                 <label for="itemDescription">Description</label>
-                <textarea id="itemDescription" name="description" rows="6" minlength="15" required>{{ form_data.get('description', '') }}</textarea>
+                <textarea id="itemDescription" name="description" rows="6">{{ form_data.get('description', '') }}</textarea>
             </div>
 
             <div class="form-row">
                 <div class="form-group">
                     <label for="itemPrice">Price (AUD)</label>
-                    <input type="number" id="itemPrice" name="price" min="0.01" step="0.01" value="{{ form_data.get('price', '') }}" required>
+                    <input type="number" id="itemPrice" name="price" min="0" step="0.01" value="{{ form_data.get('price', '') }}">
                 </div>
 
                 <div class="form-group">
                     <label for="itemCategory">Category</label>
-                    <select id="itemCategory" name="category" required>
+                    <select id="itemCategory" name="category">
                         <option value="">Select category</option>
                         {% for category in item_categories %}
                             <option value="{{ category }}"{% if form_data.get('category') == category %} selected{% endif %}>{{ category }}</option>
@@ -38,7 +63,7 @@
 
                 <div class="form-group">
                     <label for="itemCondition">Condition</label>
-                    <select id="itemCondition" name="condition" required>
+                    <select id="itemCondition" name="condition">
                         <option value="">Select condition</option>
                         {% for condition in item_conditions %}
                             <option value="{{ condition }}"{% if form_data.get('condition') == condition %} selected{% endif %}>{{ condition }}</option>
@@ -47,18 +72,56 @@
                 </div>
             </div>
 
+            {% if is_edit_mode and listing and listing.images %}
+                <div class="form-group">
+                    <label>Current saved images</label>
+                    <div class="existing-image-grid">
+                        {% for image in listing.images %}
+                            <div class="existing-image-card">
+                                <img src="{{ image.url }}" alt="{{ listing.title }}" class="existing-image-thumb">
+                                {% if loop.first %}
+                                    <span class="image-preview-badge">Cover</span>
+                                {% endif %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                    <p class="panel-text">Leave the upload field empty to keep these images. Uploading new images replaces the current gallery.</p>
+                </div>
+            {% endif %}
+
             <div class="form-group">
                 <label for="itemImages">Product images</label>
                 <input type="file" id="itemImages" name="images" accept="image/*" multiple>
-                <p class="panel-text">Upload up to {{ max_images_per_item }} local images. The first one becomes the cover photo.</p>
+                <p class="panel-text">
+                    Upload up to {{ max_images_per_item }} local images.
+                    {% if is_edit_mode and listing and listing.images %}
+                        New uploads will replace the current saved images.
+                    {% else %}
+                        The first one becomes the cover photo.
+                    {% endif %}
+                </p>
                 <p class="inline-note" id="sellImageNotice"></p>
             </div>
 
             <div class="image-preview-grid" id="imagePreviewGrid">
-                <div class="empty-state compact">No images selected yet.</div>
+                <div class="empty-state compact">
+                    {% if is_edit_mode and listing and listing.images %}
+                        No replacement images selected yet.
+                    {% else %}
+                        No images selected yet.
+                    {% endif %}
+                </div>
             </div>
 
-            <button type="submit" class="btn btn-primary">Publish listing</button>
+            <div class="form-actions">
+                <button type="submit" name="intent" value="publish" class="btn btn-primary">
+                    {% if is_edit_mode and listing and listing.is_draft %}Publish listing{% elif is_edit_mode %}Save changes{% else %}Publish listing{% endif %}
+                </button>
+                <button type="submit" name="intent" value="draft" class="btn btn-secondary">
+                    {% if is_edit_mode %}Save to drafts{% else %}Save draft{% endif %}
+                </button>
+                <a href="{{ url_for('dashboard_page') }}#drafts" class="btn btn-ghost">Open draft box</a>
+            </div>
         </form>
     </section>
 {% endblock %}
