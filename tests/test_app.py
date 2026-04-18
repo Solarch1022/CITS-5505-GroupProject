@@ -52,12 +52,21 @@ class MarketplaceAppTestCase(unittest.TestCase):
         db.session.commit()
         return user
 
-    def test_root_route_serves_spa_shell(self):
+    def test_root_route_serves_home_page(self):
         response = self.client.get('/')
         body = response.get_data(as_text=True)
 
         self.assertEqual(response.status_code, 200)
         self.assertIn('UWA SecondHand', body)
+        self.assertIn('Buy, sell, and message other UWA students in one place.', body)
+
+    def test_browse_route_serves_template_page(self):
+        response = self.client.get('/browse')
+        body = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Browse listings', body)
+        self.assertIn('Campus filters', body)
 
     def test_register_rejects_non_uwa_email(self):
         response = self.register_user('outsider', 'outsider@gmail.com')

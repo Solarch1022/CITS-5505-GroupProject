@@ -3,9 +3,11 @@ from functools import wraps
 import os
 import secrets
 import sys
+from urllib.parse import urlparse
 
-from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, abort, flash, jsonify, redirect, render_template, request, session, url_for
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
+from sqlalchemy import or_
 from werkzeug.utils import secure_filename
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -26,6 +28,18 @@ def is_valid_uwa_student_email(email):
     return email.lower().endswith(UWA_STUDENT_DOMAIN)
 
 
+def format_timestamp(value):
+    return value.strftime('%d %b %Y, %I:%M %p')
+
+
+def is_safe_redirect_target(target):
+    if not target:
+        return False
+
+    parsed = urlparse(target)
+    return not parsed.netloc and parsed.path.startswith('/') and not parsed.path.startswith('//')
+
+
 def create_app(config_name='development'):
     """Application factory."""
     app = Flask(__name__, template_folder='templates', static_folder='static')
@@ -35,6 +49,8 @@ def create_app(config_name='development'):
 
     login_manager = LoginManager()
     login_manager.init_app(app)
+    login_manager.login_view = 'login_page'
+
     upload_root = os.path.join(app.static_folder, 'uploads', 'items')
     os.makedirs(upload_root, exist_ok=True)
 
@@ -44,7 +60,12 @@ def create_app(config_name='development'):
 
     @login_manager.unauthorized_handler
     def unauthorized():
-        return jsonify({'success': False, 'error': 'Unauthorized. Please login first.'}), 401
+        if request.path.startswith('/api/'):
+            return jsonify({'success': False, 'error': 'Unauthorized. Please login first.'}), 401
+
+        next_target = request.full_path if request.query_string else request.path
+        flash('Please login first.', 'error')
+        return redirect(url_for('login_page', next=next_target))
 
     def ensure_csrf_token():
         token = session.get('csrf_token')
@@ -106,20 +127,35 @@ def create_app(config_name='development'):
 
         return image_records, saved_paths
 
+    def csrf_failure():
+        if request.path.startswith('/api/'):
+            return jsonify({'success': False, 'error': 'Invalid CSRF token'}), 403
+
+        flash('Your session expired. Please try again.', 'error')
+        return redirect(request.referrer or url_for('index'))
+
     def csrf_protect(view):
         @wraps(view)
         def wrapped(*args, **kwargs):
+            if request.method in {'GET', 'HEAD', 'OPTIONS'}:
+                return view(*args, **kwargs)
+
             expected = ensure_csrf_token()
             provided = request.headers.get('X-CSRF-Token')
+
+            if not provided:
+                provided = request.form.get('csrf_token')
+
+            if not provided and request.is_json:
+                payload = request.get_json(silent=True) or {}
+                provided = payload.get('csrf_token')
+
             if not provided or provided != expected:
-                return jsonify({'success': False, 'error': 'Invalid CSRF token'}), 403
+                return csrf_failure()
+
             return view(*args, **kwargs)
 
         return wrapped
-
-    def redirect_to_spa(fragment=''):
-        target = url_for('index')
-        return redirect(f'{target}#{fragment}' if fragment else target)
 
     def get_user_reputation(user):
         completed_sales = Transaction.query.filter_by(seller_id=user.id, status='completed').count()
@@ -172,9 +208,11 @@ def create_app(config_name='development'):
             'condition': item.condition,
             'is_sold': item.is_sold,
             'created_at': item.created_at.isoformat(),
+            'created_at_display': format_timestamp(item.created_at),
             'seller': serialize_user(item.seller),
             'images': image_payload,
             'primary_image_url': image_payload[0]['url'] if image_payload else None,
+            'description_preview': item.description[:90] + '...' if len(item.description) > 90 else item.description,
         }
         if include_description:
             payload['description'] = item.description
@@ -185,6 +223,7 @@ def create_app(config_name='development'):
             'id': message.id,
             'body': message.body,
             'created_at': message.created_at.isoformat(),
+            'created_at_display': format_timestamp(message.created_at),
             'sender': {
                 'id': message.sender.id,
                 'username': message.sender.username,
@@ -205,7 +244,9 @@ def create_app(config_name='development'):
         payload = {
             'id': conversation.id,
             'created_at': conversation.created_at.isoformat(),
+            'created_at_display': format_timestamp(conversation.created_at),
             'updated_at': conversation.updated_at.isoformat(),
+            'updated_at_display': format_timestamp(conversation.updated_at),
             'item': {
                 'id': conversation.item.id,
                 'title': conversation.item.title,
@@ -224,13 +265,95 @@ def create_app(config_name='development'):
 
         return payload
 
-    def get_item_or_404(item_id):
-        item = db.session.get(Item, item_id)
+    def get_filtered_item_query(category='', search='', include_sold=False):
+        query = Item.query
+        if not include_sold:
+            query = query.filter_by(is_sold=False)
+        if category:
+            query = query.filter_by(category=category)
+        if search:
+            query = query.filter(
+                or_(
+                    Item.title.ilike(f'%{search}%'),
+                    Item.description.ilike(f'%{search}%'),
+                )
+            )
+        return query
+
+    def build_dashboard_payload(user):
+        user_items = Item.query.filter_by(seller_id=user.id).order_by(Item.created_at.desc()).all()
+        purchases = Transaction.query.filter_by(buyer_id=user.id).order_by(Transaction.created_at.desc()).all()
+        sales = Transaction.query.filter_by(seller_id=user.id).order_by(Transaction.created_at.desc()).all()
+
+        return {
+            'user': serialize_user(user, include_email=True),
+            'listings': [serialize_item(item) for item in user_items],
+            'purchases': [
+                {
+                    'id': transaction.id,
+                    'item': {
+                        'id': transaction.item.id,
+                        'title': transaction.item.title,
+                        'price': transaction.price,
+                    },
+                    'seller': serialize_user(transaction.seller),
+                    'status': transaction.status,
+                    'created_at': transaction.created_at.isoformat(),
+                    'created_at_display': format_timestamp(transaction.created_at),
+                }
+                for transaction in purchases
+            ],
+            'sales': [
+                {
+                    'id': transaction.id,
+                    'item': {
+                        'id': transaction.item.id,
+                        'title': transaction.item.title,
+                        'price': transaction.price,
+                    },
+                    'buyer': serialize_user(transaction.buyer),
+                    'status': transaction.status,
+                    'created_at': transaction.created_at.isoformat(),
+                    'created_at_display': format_timestamp(transaction.created_at),
+                }
+                for transaction in sales
+            ],
+        }
+
+    def select_active_conversation(conversations, requested_id):
+        if not conversations:
+            return None
+
+        if requested_id:
+            for conversation in conversations:
+                if conversation.id == requested_id:
+                    return conversation
+
+        return conversations[0]
+
+    def get_item_or_none(item_id):
+        return db.session.get(Item, item_id)
+
+    def get_item_or_json_404(item_id):
+        item = get_item_or_none(item_id)
         if not item:
             return None, (jsonify({'success': False, 'error': 'Item not found'}), 404)
         return item, None
 
-    def get_conversation_or_404(conversation_id):
+    def get_conversation_or_none(conversation_id):
+        conversation = db.session.get(Conversation, conversation_id)
+        if not conversation:
+            return None
+
+        if not current_user.is_authenticated:
+            return None
+
+        if current_user.id not in {conversation.seller_id, conversation.buyer_id}:
+            return None
+
+        return conversation
+
+    def get_conversation_or_json_error(conversation_id):
         conversation = db.session.get(Conversation, conversation_id)
         if not conversation:
             return None, (jsonify({'success': False, 'error': 'Conversation not found'}), 404)
@@ -240,54 +363,430 @@ def create_app(config_name='development'):
 
         return conversation, None
 
+    def resolve_item_chat_context(item):
+        chat_context = {
+            'viewer_mode': 'anonymous',
+            'conversation_summaries': [],
+            'active_conversation': None,
+        }
+
+        if not current_user.is_authenticated:
+            return chat_context
+
+        if current_user.id == item.seller_id:
+            conversations = (
+                Conversation.query
+                .filter_by(item_id=item.id)
+                .order_by(Conversation.updated_at.desc())
+                .all()
+            )
+            active = select_active_conversation(conversations, request.args.get('conversation', type=int))
+            chat_context['viewer_mode'] = 'seller'
+            chat_context['conversation_summaries'] = [
+                serialize_conversation(conversation, viewer_id=current_user.id)
+                for conversation in conversations
+            ]
+            chat_context['active_conversation'] = (
+                serialize_conversation(active, viewer_id=current_user.id, include_messages=True)
+                if active else None
+            )
+            return chat_context
+
+        conversation = Conversation.query.filter_by(item_id=item.id, buyer_id=current_user.id).first()
+        chat_context['viewer_mode'] = 'buyer'
+        chat_context['active_conversation'] = (
+            serialize_conversation(conversation, viewer_id=current_user.id, include_messages=True)
+            if conversation else None
+        )
+        return chat_context
+
+    def resolve_dashboard_context(user):
+        dashboard = build_dashboard_payload(user)
+        conversations = (
+            Conversation.query
+            .filter(
+                or_(
+                    Conversation.seller_id == user.id,
+                    Conversation.buyer_id == user.id,
+                )
+            )
+            .order_by(Conversation.updated_at.desc())
+            .all()
+        )
+        active = select_active_conversation(conversations, request.args.get('conversation', type=int))
+        return {
+            'dashboard': dashboard,
+            'conversation_summaries': [
+                serialize_conversation(conversation, viewer_id=user.id)
+                for conversation in conversations
+            ],
+            'active_conversation': (
+                serialize_conversation(active, viewer_id=user.id, include_messages=True)
+                if active else None
+            ),
+        }
+
+    def create_user_account(username, email, password, full_name):
+        username = username.strip()
+        email = email.strip().lower()
+        full_name = full_name.strip()
+
+        if not username or not email or not password or not full_name:
+            return None, 'All fields are required', 400
+
+        if len(username) < 3:
+            return None, 'Username must be at least 3 characters', 400
+
+        if len(password) < 6:
+            return None, 'Password must be at least 6 characters', 400
+
+        if not is_valid_uwa_student_email(email):
+            return None, 'Only verified UWA student emails are allowed. Use your @student.uwa.edu.au address.', 400
+
+        if User.query.filter_by(username=username).first():
+            return None, 'Username already exists', 400
+
+        if User.query.filter_by(email=email).first():
+            return None, 'Email already exists', 400
+
+        user = User(username=username, email=email, full_name=full_name)
+        user.set_password(password)
+        db.session.add(user)
+        db.session.commit()
+        return user, None, 201
+
+    def authenticate_user(username, password):
+        username = username.strip()
+
+        if not username or not password:
+            return None, 'Username and password required', 400
+
+        user = User.query.filter_by(username=username).first()
+        if not user or not user.check_password(password):
+            return None, 'Invalid username or password', 401
+
+        return user, None, 200
+
+    def create_item_listing(title, description, price, category, condition, seller, image_files):
+        title = title.strip()
+        description = description.strip()
+        category = category.strip()
+        condition = condition.strip()
+        image_files = image_files or []
+
+        if not all([title, description, price, category, condition]):
+            return None, 'All fields are required', 400
+
+        if len(title) < 4:
+            return None, 'Item title must be at least 4 characters', 400
+
+        if len(description) < 15:
+            return None, 'Description should be at least 15 characters', 400
+
+        if category not in ITEM_CATEGORIES:
+            return None, 'Invalid category', 400
+
+        if condition not in ITEM_CONDITIONS:
+            return None, 'Invalid condition', 400
+
+        try:
+            price_value = float(price)
+            if price_value <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            return None, 'Price must be a positive number', 400
+
+        if len(image_files) > MAX_IMAGES_PER_ITEM:
+            return None, f'You can upload up to {MAX_IMAGES_PER_ITEM} images per listing', 400
+
+        saved_paths = []
+        try:
+            item = Item(
+                title=title,
+                description=description,
+                price=price_value,
+                category=category,
+                condition=condition,
+                seller_id=seller.id,
+            )
+            db.session.add(item)
+            db.session.flush()
+
+            if image_files:
+                image_records, saved_paths = save_item_images(item, image_files)
+                db.session.add_all(image_records)
+
+            db.session.commit()
+            return item, None, 201
+        except ValueError as error:
+            db.session.rollback()
+            remove_saved_files(saved_paths)
+            return None, str(error), 400
+        except OSError:
+            db.session.rollback()
+            remove_saved_files(saved_paths)
+            return None, 'Uploaded images could not be saved', 500
+
+    def complete_purchase(item, buyer):
+        if item.is_sold:
+            return None, 'Item already sold', 400
+
+        if item.seller_id == buyer.id:
+            return None, 'Cannot buy your own item', 400
+
+        transaction = Transaction(
+            item_id=item.id,
+            seller_id=item.seller_id,
+            buyer_id=buyer.id,
+            price=item.price,
+            status='completed',
+        )
+
+        item.is_sold = True
+        db.session.add(transaction)
+        db.session.commit()
+        return transaction, None, 200
+
+    def create_or_resume_conversation(item, buyer, message_body=''):
+        if buyer.id == item.seller_id:
+            return None, 'Sellers cannot create a chat with themselves', 400
+
+        message_body = message_body.strip()
+        if message_body and len(message_body) > MAX_MESSAGE_LENGTH:
+            return None, f'Messages must be {MAX_MESSAGE_LENGTH} characters or fewer', 400
+
+        conversation = Conversation.query.filter_by(item_id=item.id, buyer_id=buyer.id).first()
+        if not conversation:
+            conversation = Conversation(item_id=item.id, seller_id=item.seller_id, buyer_id=buyer.id)
+            db.session.add(conversation)
+            db.session.flush()
+
+        if message_body:
+            db.session.add(Message(conversation_id=conversation.id, sender_id=buyer.id, body=message_body))
+
+        conversation.updated_at = datetime.utcnow()
+        db.session.commit()
+        return conversation, None, 200
+
+    def send_conversation_message(conversation, sender, body):
+        body = body.strip()
+        if not body:
+            return None, 'Message cannot be empty', 400
+
+        if len(body) > MAX_MESSAGE_LENGTH:
+            return None, f'Messages must be {MAX_MESSAGE_LENGTH} characters or fewer', 400
+
+        message = Message(conversation_id=conversation.id, sender_id=sender.id, body=body)
+        conversation.updated_at = datetime.utcnow()
+        db.session.add(message)
+        db.session.commit()
+        return message, None, 201
+
+    def logout_current_session():
+        if current_user.is_authenticated:
+            logout_user()
+        session.clear()
+        return rotate_csrf_token()
+
     @app.before_request
     def bootstrap_session():
         ensure_csrf_token()
+
+    @app.context_processor
+    def inject_template_globals():
+        return {
+            'csrf_token': ensure_csrf_token(),
+            'item_categories': ITEM_CATEGORIES,
+            'item_conditions': ITEM_CONDITIONS,
+            'uwa_student_domain': UWA_STUDENT_DOMAIN,
+            'max_images_per_item': MAX_IMAGES_PER_ITEM,
+            'current_year': datetime.utcnow().year,
+        }
 
     with app.app_context():
         db.create_all()
 
     @app.route('/')
     def index():
-        """Serve the main SPA shell."""
-        return render_template('app.html', csrf_token=ensure_csrf_token())
+        latest_items = (
+            Item.query
+            .filter_by(is_sold=False)
+            .order_by(Item.created_at.desc())
+            .limit(6)
+            .all()
+        )
+        return render_template('index.html', latest_items=[serialize_item(item) for item in latest_items])
 
     @app.route('/app')
-    def app_shell():
-        """Serve the SPA shell on the legacy /app route."""
-        return render_template('app.html', csrf_token=ensure_csrf_token())
+    def legacy_app_redirect():
+        return redirect(url_for('index'))
 
     @app.route('/browse')
     @app.route('/items')
-    def browse_fallback():
-        return redirect_to_spa('/browse')
+    def browse_items():
+        category = request.args.get('category', '').strip()
+        search = request.args.get('search', '').strip()
+        query = get_filtered_item_query(category=category, search=search)
+        items = query.order_by(Item.created_at.desc()).all()
+        return render_template(
+            'items.html',
+            items=[serialize_item(item) for item in items],
+            filters={'category': category, 'search': search},
+            total=len(items),
+        )
 
-    @app.route('/login')
-    def auth_login_fallback():
-        return redirect_to_spa('/login')
+    @app.route('/login', methods=['GET', 'POST'])
+    @csrf_protect
+    def login_page():
+        if current_user.is_authenticated:
+            return redirect(url_for('dashboard_page'))
 
-    @app.route('/register')
-    def auth_register_fallback():
-        return redirect_to_spa('/register')
+        next_url = request.args.get('next', '')
+        if request.method == 'POST':
+            next_url = request.form.get('next', '')
+            user, error, status = authenticate_user(
+                request.form.get('username', ''),
+                request.form.get('password', ''),
+            )
+            if error:
+                flash(error, 'error')
+                return render_template('login.html', next_url=next_url, form_data=request.form.to_dict()), status
 
-    @app.route('/sell')
-    def sell_item_fallback():
-        return redirect_to_spa('/sell')
+            login_user(user)
+            flash('Login successful.', 'success')
+            if is_safe_redirect_target(next_url):
+                return redirect(next_url)
+            return redirect(url_for('dashboard_page'))
 
-    @app.route('/dashboard')
-    def dashboard_fallback():
-        return redirect_to_spa('/dashboard')
+        return render_template('login.html', next_url=next_url, form_data={})
+
+    @app.route('/register', methods=['GET', 'POST'])
+    @csrf_protect
+    def register_page():
+        if current_user.is_authenticated:
+            return redirect(url_for('dashboard_page'))
+
+        if request.method == 'POST':
+            user, error, status = create_user_account(
+                request.form.get('username', ''),
+                request.form.get('email', ''),
+                request.form.get('password', ''),
+                request.form.get('full_name', ''),
+            )
+            if error:
+                flash(error, 'error')
+                return render_template('register.html', form_data=request.form.to_dict()), status
+
+            flash('Registration successful. Please login with your new account.', 'success')
+            return redirect(url_for('login_page', username=user.username))
+
+        return render_template('register.html', form_data={})
+
+    @app.route('/logout', methods=['POST'])
+    @csrf_protect
+    def logout_page():
+        logout_current_session()
+        flash('Logged out.', 'success')
+        return redirect(url_for('index'))
+
+    @app.route('/sell', methods=['GET', 'POST'])
+    @login_required
+    @csrf_protect
+    def sell_item_page():
+        if request.method == 'POST':
+            item, error, status = create_item_listing(
+                request.form.get('title', ''),
+                request.form.get('description', ''),
+                request.form.get('price', ''),
+                request.form.get('category', ''),
+                request.form.get('condition', ''),
+                current_user,
+                normalize_uploaded_files(request.files.getlist('images')),
+            )
+            if error:
+                flash(error, 'error')
+                return render_template('sell_item.html', form_data=request.form.to_dict()), status
+
+            flash('Item listed successfully.', 'success')
+            return redirect(url_for('item_detail_page', item_id=item.id))
+
+        return render_template('sell_item.html', form_data={})
+
+    @app.route('/purchase/<int:item_id>', methods=['POST'])
+    @login_required
+    @csrf_protect
+    def purchase_page(item_id):
+        item = get_item_or_none(item_id)
+        if not item:
+            abort(404)
+
+        transaction, error, _ = complete_purchase(item, current_user)
+        if error:
+            flash(error, 'error')
+            return redirect(url_for('item_detail_page', item_id=item.id))
+
+        flash(f'Purchase completed for {transaction.item.title}.', 'success')
+        return redirect(url_for('dashboard_page'))
 
     @app.route('/item/<int:item_id>')
-    def item_detail_fallback(item_id):
-        return redirect_to_spa(f'/item/{item_id}')
+    def item_detail_page(item_id):
+        item = get_item_or_none(item_id)
+        if not item:
+            abort(404)
 
-    @app.route('/logout')
-    def auth_logout_fallback():
-        logout_user()
-        session.clear()
-        rotate_csrf_token()
-        return redirect_to_spa('/login')
+        return render_template(
+            'item_detail.html',
+            item=serialize_item(item),
+            chat=resolve_item_chat_context(item),
+        )
+
+    @app.route('/item/<int:item_id>/conversation', methods=['POST'])
+    @login_required
+    @csrf_protect
+    def item_conversation_page(item_id):
+        item = get_item_or_none(item_id)
+        if not item:
+            abort(404)
+
+        conversation, error, _ = create_or_resume_conversation(
+            item,
+            current_user,
+            request.form.get('message', ''),
+        )
+        if error:
+            flash(error, 'error')
+            return redirect(url_for('item_detail_page', item_id=item.id) + '#chat')
+
+        flash('Conversation ready.', 'success')
+        return redirect(url_for('item_detail_page', item_id=item.id, conversation=conversation.id) + '#chat')
+
+    @app.route('/conversations/<int:conversation_id>/reply', methods=['POST'])
+    @login_required
+    @csrf_protect
+    def conversation_reply_page(conversation_id):
+        conversation = get_conversation_or_none(conversation_id)
+        if not conversation:
+            flash('Conversation could not be found.', 'error')
+            return redirect(url_for('dashboard_page'))
+
+        _, error, _ = send_conversation_message(conversation, current_user, request.form.get('message', ''))
+        if error:
+            flash(error, 'error')
+        else:
+            flash('Message sent.', 'success')
+
+        next_url = request.form.get('next', '')
+        if is_safe_redirect_target(next_url):
+            return redirect(next_url)
+
+        if conversation.item.seller_id == current_user.id:
+            return redirect(url_for('item_detail_page', item_id=conversation.item.id, conversation=conversation.id) + '#chat')
+        return redirect(url_for('dashboard_page', conversation=conversation.id) + '#inbox')
+
+    @app.route('/dashboard')
+    @login_required
+    def dashboard_page():
+        return render_template('dashboard.html', **resolve_dashboard_context(current_user))
 
     @app.route('/api/auth/register', methods=['POST'])
     @csrf_protect
@@ -296,36 +795,14 @@ def create_app(config_name='development'):
         if not data:
             return jsonify({'success': False, 'error': 'Invalid JSON'}), 400
 
-        username = data.get('username', '').strip()
-        email = data.get('email', '').strip().lower()
-        password = data.get('password', '')
-        full_name = data.get('full_name', '').strip()
-
-        if not username or not email or not password or not full_name:
-            return jsonify({'success': False, 'error': 'All fields are required'}), 400
-
-        if len(username) < 3:
-            return jsonify({'success': False, 'error': 'Username must be at least 3 characters'}), 400
-
-        if len(password) < 6:
-            return jsonify({'success': False, 'error': 'Password must be at least 6 characters'}), 400
-
-        if not is_valid_uwa_student_email(email):
-            return jsonify({
-                'success': False,
-                'error': 'Only verified UWA student emails are allowed. Use your @student.uwa.edu.au address.'
-            }), 400
-
-        if User.query.filter_by(username=username).first():
-            return jsonify({'success': False, 'error': 'Username already exists'}), 400
-
-        if User.query.filter_by(email=email).first():
-            return jsonify({'success': False, 'error': 'Email already exists'}), 400
-
-        user = User(username=username, email=email, full_name=full_name)
-        user.set_password(password)
-        db.session.add(user)
-        db.session.commit()
+        user, error, status = create_user_account(
+            data.get('username', ''),
+            data.get('email', ''),
+            data.get('password', ''),
+            data.get('full_name', ''),
+        )
+        if error:
+            return jsonify({'success': False, 'error': error}), status
 
         return jsonify({
             'success': True,
@@ -341,18 +818,14 @@ def create_app(config_name='development'):
         if not data:
             return jsonify({'success': False, 'error': 'Invalid JSON'}), 400
 
-        username = data.get('username', '').strip()
-        password = data.get('password', '')
-
-        if not username or not password:
-            return jsonify({'success': False, 'error': 'Username and password required'}), 400
-
-        user = User.query.filter_by(username=username).first()
-        if not user or not user.check_password(password):
-            return jsonify({'success': False, 'error': 'Invalid username or password'}), 401
+        user, error, status = authenticate_user(
+            data.get('username', ''),
+            data.get('password', ''),
+        )
+        if error:
+            return jsonify({'success': False, 'error': error}), status
 
         login_user(user)
-
         return jsonify({
             'success': True,
             'message': 'Login successful',
@@ -363,10 +836,7 @@ def create_app(config_name='development'):
     @app.route('/api/auth/logout', methods=['POST'])
     @csrf_protect
     def api_auth_logout():
-        logout_user()
-        session.clear()
-        csrf_token = rotate_csrf_token()
-
+        csrf_token = logout_current_session()
         return jsonify({
             'success': True,
             'message': 'Logged out successfully',
@@ -398,17 +868,7 @@ def create_app(config_name='development'):
         offset = max(0, int(request.args.get('offset', 0)))
         include_sold = request.args.get('include_sold', 'false').lower() == 'true'
 
-        query = Item.query
-        if not include_sold:
-            query = query.filter_by(is_sold=False)
-        if category:
-            query = query.filter_by(category=category)
-        if search:
-            query = query.filter(
-                (Item.title.ilike(f'%{search}%')) |
-                (Item.description.ilike(f'%{search}%'))
-            )
-
+        query = get_filtered_item_query(category=category, search=search, include_sold=include_sold)
         total = query.count()
         items = query.order_by(Item.created_at.desc()).offset(offset).limit(limit).all()
 
@@ -422,12 +882,11 @@ def create_app(config_name='development'):
 
     @app.route('/api/items/<int:item_id>', methods=['GET'])
     def api_get_item(item_id):
-        item, error_response = get_item_or_404(item_id)
+        item, error_response = get_item_or_json_404(item_id)
         if error_response:
             return error_response
 
         seller_conversation_count = Conversation.query.filter_by(seller_id=item.seller_id).count()
-
         return jsonify({
             'success': True,
             'item': {
@@ -453,66 +912,17 @@ def create_app(config_name='development'):
         if not data:
             return jsonify({'success': False, 'error': 'Invalid JSON'}), 400
 
-        title = data.get('title', '').strip()
-        description = data.get('description', '').strip()
-        price = data.get('price')
-        category = data.get('category', '').strip()
-        condition = data.get('condition', '').strip()
-
-        if not all([title, description, price, category, condition]):
-            return jsonify({'success': False, 'error': 'All fields are required'}), 400
-
-        if len(title) < 4:
-            return jsonify({'success': False, 'error': 'Item title must be at least 4 characters'}), 400
-
-        if len(description) < 15:
-            return jsonify({'success': False, 'error': 'Description should be at least 15 characters'}), 400
-
-        if category not in ITEM_CATEGORIES:
-            return jsonify({'success': False, 'error': 'Invalid category'}), 400
-
-        if condition not in ITEM_CONDITIONS:
-            return jsonify({'success': False, 'error': 'Invalid condition'}), 400
-
-        try:
-            price = float(price)
-            if price <= 0:
-                raise ValueError
-        except (TypeError, ValueError):
-            return jsonify({'success': False, 'error': 'Price must be a positive number'}), 400
-
-        if len(image_files) > MAX_IMAGES_PER_ITEM:
-            return jsonify({
-                'success': False,
-                'error': f'You can upload up to {MAX_IMAGES_PER_ITEM} images per listing',
-            }), 400
-
-        saved_paths = []
-        try:
-            item = Item(
-                title=title,
-                description=description,
-                price=price,
-                category=category,
-                condition=condition,
-                seller_id=current_user.id,
-            )
-            db.session.add(item)
-            db.session.flush()
-
-            if image_files:
-                image_records, saved_paths = save_item_images(item, image_files)
-                db.session.add_all(image_records)
-
-            db.session.commit()
-        except ValueError as error:
-            db.session.rollback()
-            remove_saved_files(saved_paths)
-            return jsonify({'success': False, 'error': str(error)}), 400
-        except OSError:
-            db.session.rollback()
-            remove_saved_files(saved_paths)
-            return jsonify({'success': False, 'error': 'Uploaded images could not be saved'}), 500
+        item, error, status = create_item_listing(
+            data.get('title', ''),
+            data.get('description', ''),
+            data.get('price', ''),
+            data.get('category', ''),
+            data.get('condition', ''),
+            current_user,
+            image_files,
+        )
+        if error:
+            return jsonify({'success': False, 'error': error}), status
 
         return jsonify({
             'success': True,
@@ -524,27 +934,13 @@ def create_app(config_name='development'):
     @login_required
     @csrf_protect
     def api_purchase(item_id):
-        item, error_response = get_item_or_404(item_id)
+        item, error_response = get_item_or_json_404(item_id)
         if error_response:
             return error_response
 
-        if item.is_sold:
-            return jsonify({'success': False, 'error': 'Item already sold'}), 400
-
-        if item.seller_id == current_user.id:
-            return jsonify({'success': False, 'error': 'Cannot buy your own item'}), 400
-
-        transaction = Transaction(
-            item_id=item.id,
-            seller_id=item.seller_id,
-            buyer_id=current_user.id,
-            price=item.price,
-            status='completed',
-        )
-
-        item.is_sold = True
-        db.session.add(transaction)
-        db.session.commit()
+        transaction, error, status = complete_purchase(item, current_user)
+        if error:
+            return jsonify({'success': False, 'error': error}), status
 
         return jsonify({
             'success': True,
@@ -555,64 +951,22 @@ def create_app(config_name='development'):
                 'price': transaction.price,
                 'status': transaction.status,
                 'created_at': transaction.created_at.isoformat(),
+                'created_at_display': format_timestamp(transaction.created_at),
             },
         }), 200
 
     @app.route('/api/dashboard', methods=['GET'])
     @login_required
     def api_dashboard():
-        user_items = Item.query.filter_by(seller_id=current_user.id).order_by(Item.created_at.desc()).all()
-        purchases = Transaction.query.filter_by(buyer_id=current_user.id).order_by(Transaction.created_at.desc()).all()
-        sales = Transaction.query.filter_by(seller_id=current_user.id).order_by(Transaction.created_at.desc()).all()
-
         return jsonify({
             'success': True,
-            'dashboard': {
-                'user': serialize_user(current_user, include_email=True),
-                'listings': [
-                    {
-                        **serialize_item(item),
-                        'description_preview': (
-                            item.description[:90] + '...' if len(item.description) > 90 else item.description
-                        ),
-                    }
-                    for item in user_items
-                ],
-                'purchases': [
-                    {
-                        'id': transaction.id,
-                        'item': {
-                            'id': transaction.item.id,
-                            'title': transaction.item.title,
-                            'price': transaction.price,
-                        },
-                        'seller': serialize_user(transaction.seller),
-                        'status': transaction.status,
-                        'created_at': transaction.created_at.isoformat(),
-                    }
-                    for transaction in purchases
-                ],
-                'sales': [
-                    {
-                        'id': transaction.id,
-                        'item': {
-                            'id': transaction.item.id,
-                            'title': transaction.item.title,
-                            'price': transaction.price,
-                        },
-                        'buyer': serialize_user(transaction.buyer),
-                        'status': transaction.status,
-                        'created_at': transaction.created_at.isoformat(),
-                    }
-                    for transaction in sales
-                ],
-            },
+            'dashboard': build_dashboard_payload(current_user),
         }), 200
 
     @app.route('/api/items/<int:item_id>/conversation', methods=['GET'])
     @login_required
     def api_get_item_conversation(item_id):
-        item, error_response = get_item_or_404(item_id)
+        item, error_response = get_item_or_json_404(item_id)
         if error_response:
             return error_response
 
@@ -646,29 +1000,14 @@ def create_app(config_name='development'):
     @login_required
     @csrf_protect
     def api_create_or_resume_conversation(item_id):
-        item, error_response = get_item_or_404(item_id)
+        item, error_response = get_item_or_json_404(item_id)
         if error_response:
             return error_response
 
-        if current_user.id == item.seller_id:
-            return jsonify({'success': False, 'error': 'Sellers cannot create a chat with themselves'}), 400
-
         data = request.get_json(silent=True) or {}
-        message_body = data.get('message', '').strip()
-        if message_body and len(message_body) > MAX_MESSAGE_LENGTH:
-            return jsonify({'success': False, 'error': f'Messages must be {MAX_MESSAGE_LENGTH} characters or fewer'}), 400
-
-        conversation = Conversation.query.filter_by(item_id=item.id, buyer_id=current_user.id).first()
-        if not conversation:
-            conversation = Conversation(item_id=item.id, seller_id=item.seller_id, buyer_id=current_user.id)
-            db.session.add(conversation)
-            db.session.flush()
-
-        if message_body:
-            db.session.add(Message(conversation_id=conversation.id, sender_id=current_user.id, body=message_body))
-
-        conversation.updated_at = datetime.utcnow()
-        db.session.commit()
+        conversation, error, status = create_or_resume_conversation(item, current_user, data.get('message', ''))
+        if error:
+            return jsonify({'success': False, 'error': error}), status
 
         return jsonify({
             'success': True,
@@ -682,8 +1021,10 @@ def create_app(config_name='development'):
         conversations = (
             Conversation.query
             .filter(
-                (Conversation.seller_id == current_user.id) |
-                (Conversation.buyer_id == current_user.id)
+                or_(
+                    Conversation.seller_id == current_user.id,
+                    Conversation.buyer_id == current_user.id,
+                )
             )
             .order_by(Conversation.updated_at.desc())
             .all()
@@ -700,7 +1041,7 @@ def create_app(config_name='development'):
     @app.route('/api/conversations/<int:conversation_id>', methods=['GET'])
     @login_required
     def api_get_conversation(conversation_id):
-        conversation, error_response = get_conversation_or_404(conversation_id)
+        conversation, error_response = get_conversation_or_json_error(conversation_id)
         if error_response:
             return error_response
 
@@ -713,7 +1054,7 @@ def create_app(config_name='development'):
     @login_required
     @csrf_protect
     def api_send_message(conversation_id):
-        conversation, error_response = get_conversation_or_404(conversation_id)
+        conversation, error_response = get_conversation_or_json_error(conversation_id)
         if error_response:
             return error_response
 
@@ -721,17 +1062,9 @@ def create_app(config_name='development'):
         if not data:
             return jsonify({'success': False, 'error': 'Invalid JSON'}), 400
 
-        body = data.get('message', '').strip()
-        if not body:
-            return jsonify({'success': False, 'error': 'Message cannot be empty'}), 400
-
-        if len(body) > MAX_MESSAGE_LENGTH:
-            return jsonify({'success': False, 'error': f'Messages must be {MAX_MESSAGE_LENGTH} characters or fewer'}), 400
-
-        message = Message(conversation_id=conversation.id, sender_id=current_user.id, body=body)
-        conversation.updated_at = datetime.utcnow()
-        db.session.add(message)
-        db.session.commit()
+        message, error, status = send_conversation_message(conversation, current_user, data.get('message', ''))
+        if error:
+            return jsonify({'success': False, 'error': error}), status
 
         return jsonify({
             'success': True,

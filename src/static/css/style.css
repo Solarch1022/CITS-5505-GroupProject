@@ -90,6 +90,25 @@ body {
     font-weight: 600;
 }
 
+.nav-inline-form {
+    margin: 0;
+}
+
+.nav-link-button {
+    border: none;
+    background: transparent;
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font: inherit;
+}
+
+.nav-link-button:hover {
+    background-color: #e74c3c;
+    color: white;
+}
+
 /* ============================================
    MAIN CONTENT
    ============================================ */
@@ -105,6 +124,12 @@ main {
     padding: 0 20px;
 }
 
+.page-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 20px;
+}
+
 /* ============================================
    FOOTER
    ============================================ */
@@ -115,6 +140,28 @@ main {
     text-align: center;
     padding: 2rem;
     margin-top: 4rem;
+}
+
+.flash-stack {
+    display: grid;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+}
+
+.flash-message {
+    padding: 0.9rem 1rem;
+    border-radius: 8px;
+    font-weight: 600;
+}
+
+.flash-message.success {
+    background: #d7f1e1;
+    color: #166534;
+}
+
+.flash-message.error {
+    background: #fee2e2;
+    color: #b91c1c;
 }
 
 /* ============================================
@@ -215,6 +262,13 @@ main {
     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     transition: transform 0.3s, box-shadow 0.3s;
     cursor: pointer;
+}
+
+.item-card-link {
+    display: block;
+    height: 100%;
+    color: inherit;
+    text-decoration: none;
 }
 
 .item-card:hover {
@@ -471,6 +525,34 @@ main {
     font-weight: 600;
 }
 
+.gallery-thumbs {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(70px, 1fr));
+    gap: 0.75rem;
+    padding: 1rem;
+    background: #fff;
+}
+
+.gallery-thumb {
+    border: 2px solid transparent;
+    border-radius: 10px;
+    overflow: hidden;
+    padding: 0;
+    cursor: pointer;
+    background: #edf2f7;
+}
+
+.gallery-thumb img {
+    width: 100%;
+    height: 72px;
+    object-fit: cover;
+    display: block;
+}
+
+.gallery-thumb.active {
+    border-color: #0f4c81;
+}
+
 .item-info-section {
     grid-column: 2;
 }
@@ -654,6 +736,10 @@ main {
     text-decoration: underline;
 }
 
+.auth-helper {
+    margin-bottom: 1rem;
+}
+
 .error-message {
     background-color: #fadbd8;
     color: #c0392b;
@@ -771,6 +857,13 @@ main {
     font-size: 0.8rem;
     color: #475569;
     word-break: break-word;
+}
+
+.inline-note {
+    min-height: 1.2rem;
+    margin-top: 0.35rem;
+    color: #b45309;
+    font-size: 0.85rem;
 }
 
 /* ============================================
@@ -1293,6 +1386,8 @@ main {
     gap: 1rem;
     cursor: pointer;
     text-align: left;
+    text-decoration: none;
+    color: inherit;
 }
 
 .conversation-item p {
@@ -1307,6 +1402,12 @@ main {
 
 .auth-card-wide {
     max-width: 480px;
+}
+
+.chat-feedback {
+    min-height: 1.2rem;
+    color: #b91c1c;
+    font-size: 0.85rem;
 }
 
 @media (max-width: 768px) {

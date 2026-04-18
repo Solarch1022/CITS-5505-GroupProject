@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+
+{% block title %}UWA SecondHand - Sell Item{% endblock %}
+
+{% block content %}
+    <section class="form-container">
+        <h1>List a new item</h1>
+        <p class="panel-text">Keep descriptions practical so buyers know condition, pick-up area, and timing.</p>
+
+        <form method="post" action="{{ url_for('sell_item_page') }}" enctype="multipart/form-data" id="sellItemForm" data-sell-form data-max-images="{{ max_images_per_item }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+            <div class="form-group">
+                <label for="itemTitle">Title</label>
+                <input type="text" id="itemTitle" name="title" minlength="4" value="{{ form_data.get('title', '') }}" required>
+            </div>
+
+            <div class="form-group">
+                <label for="itemDescription">Description</label>
+                <textarea id="itemDescription" name="description" rows="6" minlength="15" required>{{ form_data.get('description', '') }}</textarea>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="itemPrice">Price (AUD)</label>
+                    <input type="number" id="itemPrice" name="price" min="0.01" step="0.01" value="{{ form_data.get('price', '') }}" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="itemCategory">Category</label>
+                    <select id="itemCategory" name="category" required>
+                        <option value="">Select category</option>
+                        {% for category in item_categories %}
+                            <option value="{{ category }}"{% if form_data.get('category') == category %} selected{% endif %}>{{ category }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="itemCondition">Condition</label>
+                    <select id="itemCondition" name="condition" required>
+                        <option value="">Select condition</option>
+                        {% for condition in item_conditions %}
+                            <option value="{{ condition }}"{% if form_data.get('condition') == condition %} selected{% endif %}>{{ condition }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="itemImages">Product images</label>
+                <input type="file" id="itemImages" name="images" accept="image/*" multiple>
+                <p class="panel-text">Upload up to {{ max_images_per_item }} local images. The first one becomes the cover photo.</p>
+                <p class="inline-note" id="sellImageNotice"></p>
+            </div>
+
+            <div class="image-preview-grid" id="imagePreviewGrid">
+                <div class="empty-state compact">No images selected yet.</div>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Publish listing</button>
+        </form>
+    </section>
+{% endblock %}

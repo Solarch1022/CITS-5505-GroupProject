@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+
+{% block title %}UWA SecondHand - Home{% endblock %}
+
+{% block content %}
+    <section class="hero hero-campus">
+        <div class="hero-copy">
+            <span class="hero-kicker">Exclusive to the UWA campus community</span>
+            <h1>Buy, sell, and message other UWA students in one place.</h1>
+            <p>List textbooks, furniture, electronics, and moving-out essentials with verified student accounts and built-in chat.</p>
+            <div class="hero-actions">
+                <a href="{{ url_for('browse_items') }}" class="btn btn-primary">Browse listings</a>
+                {% if current_user.is_authenticated %}
+                    <a href="{{ url_for('sell_item_page') }}" class="btn btn-secondary">Post an item</a>
+                {% else %}
+                    <a href="{{ url_for('register_page') }}" class="btn btn-secondary">Create UWA account</a>
+                {% endif %}
+            </div>
+        </div>
+        <div class="hero-panel">
+            <h3>Why this concept fits the assignment</h3>
+            <ul class="hero-points">
+                <li>Traditional Flask client-server flow with Jinja templates and AJAX-enhanced chat.</li>
+                <li>Persistent users, listings, transactions, uploaded images, and messages.</li>
+                <li>Students can browse data created by other students across the marketplace.</li>
+                <li>Campus-only onboarding through UWA student email verification.</li>
+            </ul>
+        </div>
+    </section>
+
+    <section class="section">
+        <div class="section-heading">
+            <h2>Campus trust model</h2>
+            <p>Every account is validated against {{ uwa_student_domain }} before it can join the marketplace.</p>
+        </div>
+        <div class="info-banner">
+            <div>
+                <strong>Live inbox:</strong> buyers and sellers can message inside each listing and keep the conversation on campus.
+            </div>
+            <div>
+                <strong>Reputation:</strong> every completed sale and purchase contributes to a visible trader score.
+            </div>
+        </div>
+    </section>
+
+    <section class="section">
+        <div class="section-heading">
+            <h2>Latest listings</h2>
+            <p>
+                {% if latest_items %}
+                    Fresh listings from the current database.
+                {% else %}
+                    No listings yet. Create the first UWA campus listing.
+                {% endif %}
+            </p>
+        </div>
+        {% if latest_items %}
+            <div class="items-grid">
+                {% for item in latest_items %}
+                    {% include 'partials/item_card.html' %}
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="empty-state">No items have been listed yet.</div>
+        {% endif %}
+    </section>
+{% endblock %}

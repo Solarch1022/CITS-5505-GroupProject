@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+
+{% block title %}UWA SecondHand - Login{% endblock %}
+
+{% block content %}
+    <section class="auth-container">
+        <div class="auth-card">
+            <h1>Login</h1>
+            <form method="post" action="{{ url_for('login_page') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="next" value="{{ next_url }}">
+
+                <div class="form-group">
+                    <label for="loginUsername">Username</label>
+                    <input type="text" id="loginUsername" name="username" value="{{ form_data.get('username', request.args.get('username', '')) }}" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="loginPassword">Password</label>
+                    <input type="password" id="loginPassword" name="password" required>
+                </div>
+
+                <button type="submit" class="btn btn-primary">Login</button>
+            </form>
+
+            <p class="auth-link">
+                Need an account?
+                <a href="{{ url_for('register_page') }}">Register with your UWA email</a>
+            </p>
+        </div>
+    </section>
+{% endblock %}

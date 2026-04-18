@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Simple smoke test for the current SPA + API architecture."""
+"""Simple smoke test for the current multi-template Flask architecture."""
 
 from src.app import create_app
 
@@ -10,8 +10,14 @@ def main():
     with app.test_client() as client:
         response = client.get('/')
         assert response.status_code == 200, f'Expected 200 for /, got {response.status_code}'
-        assert 'UWA SecondHand' in response.get_data(as_text=True)
-        print('PASS: GET / serves the SPA shell')
+        body = response.get_data(as_text=True)
+        assert 'UWA SecondHand' in body
+        assert 'Buy, sell, and message other UWA students in one place.' in body
+        print('PASS: GET / serves the home page template')
+
+        browse = client.get('/browse')
+        assert browse.status_code == 200, f'Expected 200 for /browse, got {browse.status_code}'
+        print('PASS: GET /browse serves the browse template')
 
         constants = client.get('/api/constants')
         assert constants.status_code == 200, f'Expected 200 for /api/constants, got {constants.status_code}'
