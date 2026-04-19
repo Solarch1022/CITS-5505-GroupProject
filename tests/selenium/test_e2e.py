@@ -111,6 +111,57 @@ class MarketplaceSeleniumTests(unittest.TestCase):
             print(driver.page_source[:2000])
         return title
     
+    def create_draft(
+            self,
+            title=None,
+            description="Need to double-check a few details before publishing this draft listing.",
+    ):
+        driver = self.driver
+        wait = self.wait
+
+        title = title or self.unique_text("draft")
+
+        driver.get(f"{BASE_URL}/sell")
+        wait.until(EC.presence_of_element_located((By.NAME, "title")))
+
+        title_input = driver.find_element(By.NAME, "title")
+        description_input = driver.find_element(By.NAME, "description")
+
+        title_input.send_keys(title)
+        description_input.send_keys(description)
+
+        form = title_input.find_element(By.XPATH, "./ancestor::form")
+
+        driver.execute_script("""
+            const form = arguments[0];
+            let intentInput = form.querySelector('input[name="intent"]');
+            if (!intentInput) {
+                intentInput = document.createElement('input');
+                intentInput.type = 'hidden';
+                intentInput.name = 'intent';
+                form.appendChild(intentInput);
+            }
+            intentInput.value = 'draft';
+            form.submit();
+        """, form)
+
+        wait.until(EC.url_contains("/dashboard"))
+        return title
+    
+    def test_save_draft_and_hide_it_from_public_browse(self):
+        username, _, password = self.register_user()
+        self.login_user(username, password)
+
+        draft_title = self.create_draft()
+
+        self.assertIn("/dashboard", self.driver.current_url)
+        self.assertIn(draft_title, self.driver.page_source)
+
+        self.driver.get(f"{BASE_URL}/browse")
+        self.wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+
+        self.assertNotIn(draft_title, self.driver.page_source)
+
     def test_create_listing_and_see_it_in_browse(self):
         username, _, password = self.register_user()
         self.login_user(username, password)
