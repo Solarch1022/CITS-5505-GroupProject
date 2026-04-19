@@ -4,7 +4,7 @@ import unittest
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support.ui import WebDriverWait,Select
 from selenium.webdriver.support import expected_conditions as EC
 
 BASE_URL = os.environ.get("BASE_URL", "http://127.0.0.1:8000")
@@ -70,6 +70,60 @@ class MarketplaceSeleniumTests(unittest.TestCase):
         driver.find_element(By.CSS_SELECTOR, "form button[type='submit']").click()
 
         wait.until(EC.url_contains("/dashboard"))
+
+    def create_listing(
+            self, 
+            title=None, 
+            description="A working item for Selenium listing tests on the UWA marketplace", 
+            price="25",
+            category="Electronics",
+            condition="Good"
+        ):
+        driver = self.driver
+        wait = self.wait
+
+        title = title or self.unique_text("Listing")
+
+        driver.get(f"{BASE_URL}/sell")
+
+        wait.until(EC.presence_of_element_located((By.NAME, "title")))
+
+        driver.find_element(By.NAME, "title").send_keys(title)
+        driver.find_element(By.NAME, "description").send_keys(description)
+        driver.find_element(By.NAME, "price").send_keys(price)
+
+        Select(driver.find_element(By.NAME, "category")).select_by_visible_text(category)
+        Select(driver.find_element(By.NAME, "condition")).select_by_visible_text(condition)
+
+        publish_button = wait.until(
+            EC.element_to_be_clickable((
+                By.CSS_SELECTOR,
+                "button[name='intent'][value='publish'], input[name='intent'][value='publish']"
+            ))
+        )
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", publish_button)
+        driver.execute_script("arguments[0].click();", publish_button)
+
+        try:
+            wait.until(EC.url_contains("/item/"))
+        except Exception:
+            print("Current URL after submit:", driver.current_url)
+            print(driver.page_source[:2000])
+        return title
+    
+    def test_create_listing_and_see_it_in_browse(self):
+        username, _, password = self.register_user()
+        self.login_user(username, password)
+
+        listing_title = self.create_listing()
+
+        self.assertIn("/item/", self.driver.current_url)
+        self.assertIn(listing_title, self.driver.page_source)
+
+        self.driver.get(f"{BASE_URL}/browse")
+        self.wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+
+        self.assertIn(listing_title, self.driver.page_source)
 
     def test_register_with_valid_uwa_email(self):
         username, _, _ = self.register_user()
