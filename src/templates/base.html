@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}UWA SecondHand{% endblock %}</title>
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body data-current-user-id="{{ current_user.id if current_user.is_authenticated else '' }}">
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="{{ url_for('index') }}" class="nav-logo">UWA SecondHand</a>
+            <ul class="nav-menu">
+                <li><a href="{{ url_for('index') }}">Home</a></li>
+                <li><a href="{{ url_for('browse_items') }}">Browse</a></li>
+                {% if current_user.is_authenticated %}
+                    <li><a href="{{ url_for('dashboard_page') }}">Inbox</a></li>
+                    <li><span class="nav-user">{{ current_user.username }}</span></li>
+                    <li><a href="{{ url_for('sell_item_page') }}" class="btn-sell">Sell</a></li>
+                    <li>
+                        <form method="post" action="{{ url_for('logout_page') }}" class="nav-inline-form">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button type="submit" class="nav-link-button">Logout</button>
+                        </form>
+                    </li>
+                {% else %}
+                    <li><a href="{{ url_for('login_page') }}">Login</a></li>
+                    <li><a href="{{ url_for('register_page') }}">Register</a></li>
+                {% endif %}
+            </ul>
+        </div>
+    </nav>
+
+    <main>
+        <div class="page-container">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    <div class="flash-stack">
+                        {% for category, message in messages %}
+                            <div class="flash-message {{ category }}">{{ message }}</div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            {% endwith %}
+
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+
+    <footer class="footer">
+        <p>&copy; {{ current_year }} UWA SecondHand. Built for the UWA campus community.</p>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,29 @@
+<article class="item-card">
+    <a href="{{ url_for('item_detail_page', item_id=item.id) }}" class="item-card-link">
+        <div class="item-image">
+            {% if item.primary_image_url %}
+                <img src="{{ item.primary_image_url }}" alt="{{ item.title }}" class="item-image-preview">
+            {% else %}
+                <div class="placeholder">{{ item.category[:3]|upper }}</div>
+            {% endif %}
+        </div>
+        <div class="item-content">
+            <h3>{{ item.title }}</h3>
+            <div class="item-tags">
+                <span class="item-category">{{ item.category }}</span>
+                <span class="item-condition">{{ item.condition }}</span>
+            </div>
+            <p class="item-seller">Seller: {{ item.seller.full_name or item.seller.username }}</p>
+            <div class="item-badges">
+                {% set user = item.seller %}
+                {% include 'partials/reputation_badges.html' %}
+            </div>
+            <div class="item-footer">
+                <span class="price">${{ '%.2f'|format(item.price) }}</span>
+                <span class="status{% if item.is_sold %} status-sold{% endif %}">
+                    {% if item.is_sold %}Sold{% else %}Available{% endif %}
+                </span>
+            </div>
+        </div>
+    </a>
+</article>

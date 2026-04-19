@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+
+{% block title %}UWA SecondHand - Browse{% endblock %}
+
+{% block content %}
+    <section class="browse-container">
+        <aside class="filters">
+            <h3>Campus filters</h3>
+            <p class="panel-text">Find what other UWA students are selling right now.</p>
+
+            <form method="get" action="{{ url_for('browse_items') }}" class="search-box">
+                <input type="text" name="search" placeholder="Search listings..." value="{{ filters.search }}">
+                {% if filters.category %}
+                    <input type="hidden" name="category" value="{{ filters.category }}">
+                {% endif %}
+                <button type="submit">Search</button>
+            </form>
+
+            <h4>Categories</h4>
+            <div class="category-list">
+                <a href="{{ url_for('browse_items', search=filters.search) }}" class="category-btn{% if not filters.category %} active{% endif %}">All categories</a>
+                {% for category in item_categories %}
+                    <a href="{{ url_for('browse_items', category=category, search=filters.search) }}" class="category-btn{% if filters.category == category %} active{% endif %}">{{ category }}</a>
+                {% endfor %}
+            </div>
+        </aside>
+
+        <section class="items-section">
+            <div class="section-heading">
+                <h2>Browse listings</h2>
+                <p class="browse-results-meta">
+                    {{ total }} listing{% if total != 1 %}s{% endif %}
+                    {% if filters.category %}in {{ filters.category }}{% endif %}
+                    {% if filters.search %}matching "{{ filters.search }}"{% endif %}
+                </p>
+            </div>
+
+            {% if items %}
+                <div class="items-grid">
+                    {% for item in items %}
+                        {% include 'partials/item_card.html' %}
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="empty-state">No listings match your current filters.</div>
+            {% endif %}
+        </section>
+    </section>
+{% endblock %}

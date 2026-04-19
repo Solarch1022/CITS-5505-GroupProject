@@ -1,0 +1,4 @@
+<span class="campus-pill{% if not user.is_uwa_verified %} pending{% endif %}">
+    {% if user.is_uwa_verified %}Verified UWA student{% else %}Verification pending{% endif %}
+</span>
+<span class="rating-pill">{{ user.reputation.label }} - {{ '%.1f'|format(user.reputation.score) }}</span>
