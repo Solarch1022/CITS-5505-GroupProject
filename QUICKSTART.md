@@ -99,3 +99,19 @@ python src\app.py
 python -m unittest discover -s tests -v
 python test_integration.py
 ```
+
+## Selenium Test Commands
+
+1. Start the Flask server in one terminal:
+
+```powershell
+python src\app.py
+```
+
+2. Then open another terminal, activate the virtual environment, and run:
+
+```powershell
+python -m unittest discover -s tests/selenium -p "test*.py" -t . -v
+```
+
+These browser tests cover the main end-to-end flows such as registration, login/logout, listing creation, and draft visibility.
