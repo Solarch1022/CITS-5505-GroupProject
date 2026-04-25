@@ -380,9 +380,29 @@ function attachUnlistModal() {
     });
 }
 
+function attachUserDropdown() {
+    const userMenuBtn = document.getElementById('userMenuBtn');
+    const userDropdown = document.getElementById('userDropdown');
+
+    if (!userMenuBtn || !userDropdown) {
+        return;
+    }
+
+    userMenuBtn.addEventListener('click', () => {
+        userDropdown.classList.toggle('active');
+    });
+
+    document.addEventListener('click', (event) => {
+        if (!event.target.closest('.nav-user-dropdown')) {
+            userDropdown.classList.remove('active');
+        }
+    });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     attachSellImagePicker();
     attachItemGallery();
     attachChatWidgets();
     attachUnlistModal();
+    attachUserDropdown();
 });
