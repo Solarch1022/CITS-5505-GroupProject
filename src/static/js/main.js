@@ -380,9 +380,107 @@ function attachUnlistModal() {
     });
 }
 
+function attachWalletModal() {
+    const backdrop = document.getElementById('walletModalBackdrop');
+    const launchButtons = Array.from(document.querySelectorAll('[data-wallet-launch]'));
+    const closeButtons = Array.from(document.querySelectorAll('[data-wallet-close]'));
+
+    if (!backdrop || !launchButtons.length) {
+        return;
+    }
+
+    const currentUrlWithoutHash = () => `${window.location.pathname}${window.location.search}`;
+
+    const openModal = (syncHash = true) => {
+        backdrop.classList.remove('hidden');
+        document.body.classList.add('modal-open');
+        if (syncHash && window.location.hash !== '#wallet') {
+            history.replaceState(null, '', `${currentUrlWithoutHash()}#wallet`);
+        }
+    };
+
+    const closeModal = (syncHash = true) => {
+        backdrop.classList.add('hidden');
+        document.body.classList.remove('modal-open');
+        if (syncHash && window.location.hash === '#wallet') {
+            history.replaceState(null, '', currentUrlWithoutHash());
+        }
+    };
+
+    const syncWithHash = () => {
+        if (window.location.hash === '#wallet') {
+            openModal(false);
+        } else {
+            closeModal(false);
+        }
+    };
+
+    launchButtons.forEach((button) => {
+        button.addEventListener('click', (event) => {
+            event.preventDefault();
+            openModal(true);
+        });
+    });
+
+    closeButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+            closeModal(true);
+        });
+    });
+
+    backdrop.addEventListener('click', (event) => {
+        if (event.target === backdrop) {
+            closeModal(true);
+        }
+    });
+
+    window.addEventListener('hashchange', syncWithHash);
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && !backdrop.classList.contains('hidden')) {
+            closeModal(true);
+        }
+    });
+
+    syncWithHash();
+}
+
+function attachWalletVisibilityToggle() {
+    const toggleButtons = Array.from(document.querySelectorAll('[data-wallet-toggle]'));
+    const sensitiveValues = Array.from(document.querySelectorAll('[data-wallet-sensitive]'));
+
+    if (!toggleButtons.length || !sensitiveValues.length) {
+        return;
+    }
+
+    let isVisible = window.localStorage.getItem('walletSensitiveVisible') === 'true';
+
+    const renderState = () => {
+        sensitiveValues.forEach((node) => {
+            node.textContent = isVisible ? (node.dataset.value || '') : '****';
+        });
+
+        toggleButtons.forEach((button) => {
+            button.textContent = isVisible ? 'Hide balances' : 'Reveal balances';
+            button.setAttribute('aria-pressed', isVisible ? 'true' : 'false');
+        });
+    };
+
+    toggleButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+            isVisible = !isVisible;
+            window.localStorage.setItem('walletSensitiveVisible', isVisible ? 'true' : 'false');
+            renderState();
+        });
+    });
+
+    renderState();
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     attachSellImagePicker();
     attachItemGallery();
     attachChatWidgets();
     attachUnlistModal();
+    attachWalletModal();
+    attachWalletVisibilityToggle();
 });

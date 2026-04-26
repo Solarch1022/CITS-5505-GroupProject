@@ -16,6 +16,7 @@
             <div class="dashboard-actions">
                 <a href="{{ url_for('sell_item_page') }}" class="btn btn-primary">Post a new item</a>
                 <a href="{{ url_for('browse_items') }}" class="btn btn-secondary">Browse market</a>
+                <button type="button" class="btn btn-ghost" data-wallet-launch>Open wallet</button>
             </div>
         </div>
 
@@ -207,6 +208,19 @@
             </div>
         </section>
     </section>
+
+    <div class="modal-backdrop wallet-modal-backdrop hidden" id="walletModalBackdrop">
+        <div class="wallet-modal" role="dialog" aria-modal="true" aria-labelledby="walletModalTitle">
+            <div class="wallet-modal-header">
+                <div>
+                    <h2 id="walletModalTitle">Wallet & payouts</h2>
+                    <p class="panel-text">Manage your balance, linked cards, top-ups, and withdrawals without leaving the inbox.</p>
+                </div>
+                <button type="button" class="btn btn-ghost btn-sm" data-wallet-close>Close</button>
+            </div>
+            {% include 'partials/wallet_workspace.html' %}
+        </div>
+    </div>
 
     <div class="modal-backdrop hidden" id="unlistModalBackdrop">
         <div class="decision-modal" role="dialog" aria-modal="true" aria-labelledby="unlistModalTitle">

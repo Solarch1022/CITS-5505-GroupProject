@@ -1,0 +1,148 @@
+<div class="section-heading">
+    <h2>Wallet & payouts</h2>
+    <p>Funds from completed campus trades stay inside your on-platform wallet until you withdraw them to a linked bank card.</p>
+</div>
+
+<div class="wallet-grid">
+    <article class="wallet-panel">
+        <div class="wallet-panel-header">
+            <div>
+                <h3>On-platform balance</h3>
+                <p class="panel-text">Use this balance directly for new purchases or withdraw it to your bank.</p>
+            </div>
+            <button type="button" class="btn btn-sm btn-ghost" data-wallet-toggle>Reveal balances</button>
+        </div>
+        <div class="wallet-balance" data-wallet-sensitive data-value="${{ '%.2f'|format(dashboard.wallet.available_balance) }}">••••••</div>
+        <div class="wallet-mini-metrics">
+            <div class="wallet-mini-metric">
+                <span class="wallet-mini-label">Linked cards</span>
+                <strong>{{ dashboard.wallet.payment_methods|length }}</strong>
+            </div>
+            <div class="wallet-mini-metric">
+                <span class="wallet-mini-label">Withdrawal fee</span>
+                <strong>{{ dashboard.wallet.withdrawal_fee_rate_percent }}% min ${{ '%.2f'|format(dashboard.wallet.withdrawal_fee_minimum) }}</strong>
+            </div>
+            <div class="wallet-mini-metric">
+                <span class="wallet-mini-label">Top-up range</span>
+                <strong>${{ '%.2f'|format(dashboard.wallet.min_top_up_amount) }} - ${{ '%.2f'|format(dashboard.wallet.max_top_up_amount) }}</strong>
+            </div>
+        </div>
+    </article>
+
+    <article class="wallet-panel">
+        <div class="section-heading compact">
+            <h3>Linked bank cards</h3>
+            <p>Only masked payment details are stored for this coursework demo.</p>
+        </div>
+        {% if dashboard.wallet.payment_methods %}
+            <div class="wallet-method-list">
+                {% for method in dashboard.wallet.payment_methods %}
+                    <div class="wallet-method-card">
+                        <div>
+                            <strong>{{ method.provider_name }}</strong>
+                            <p>{{ method.account_holder }}</p>
+                            <p class="panel-text">{{ method.masked_details }}</p>
+                        </div>
+                        {% if method.is_default %}
+                            <span class="campus-pill">Default</span>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="empty-state compact">No payment methods linked yet. Add a bank card before topping up or withdrawing.</div>
+        {% endif %}
+
+        <form method="post" action="{{ url_for('wallet_payment_methods_page') }}" class="wallet-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-group">
+                <label for="providerName">Bank / provider</label>
+                <input id="providerName" name="provider_name" type="text" placeholder="Commonwealth Bank" required>
+            </div>
+            <div class="form-group">
+                <label for="accountHolder">Cardholder name</label>
+                <input id="accountHolder" name="account_holder" type="text" placeholder="UWA Student" required>
+            </div>
+            <div class="form-group">
+                <label for="accountNumber">Bank card number</label>
+                <input id="accountNumber" name="account_number" type="text" inputmode="numeric" placeholder="4111 1111 1111 1111" required>
+            </div>
+            <label class="wallet-check">
+                <input type="checkbox" name="is_default" checked>
+                Set as default payment method
+            </label>
+            <button type="submit" class="btn btn-secondary">Link card</button>
+        </form>
+    </article>
+
+    <article class="wallet-panel">
+        <div class="section-heading compact">
+            <h3>Top up and withdraw</h3>
+            <p>Buyers spend from wallet funds. Sellers receive sale proceeds in this wallet until they withdraw.</p>
+        </div>
+        <form method="post" action="{{ url_for('wallet_top_up_page') }}" class="wallet-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-group">
+                <label for="topUpMethod">Top up from</label>
+                <select id="topUpMethod" name="payment_method_id" {% if not dashboard.wallet.payment_methods %}disabled{% endif %}>
+                    {% for method in dashboard.wallet.payment_methods %}
+                        <option value="{{ method.id }}" {% if method.is_default %}selected{% endif %}>{{ method.provider_name }} ending {{ method.last_four }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="topUpAmount">Top-up amount</label>
+                <input id="topUpAmount" name="amount" type="number" step="0.01" min="{{ '%.2f'|format(dashboard.wallet.min_top_up_amount) }}" placeholder="50.00" required>
+            </div>
+            <button type="submit" class="btn btn-primary" {% if not dashboard.wallet.payment_methods %}disabled{% endif %}>Top up wallet</button>
+        </form>
+
+        <form method="post" action="{{ url_for('wallet_withdraw_page') }}" class="wallet-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-group">
+                <label for="withdrawMethod">Withdraw to</label>
+                <select id="withdrawMethod" name="payment_method_id" {% if not dashboard.wallet.payment_methods %}disabled{% endif %}>
+                    {% for method in dashboard.wallet.payment_methods %}
+                        <option value="{{ method.id }}" {% if method.is_default %}selected{% endif %}>{{ method.provider_name }} ending {{ method.last_four }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="withdrawAmount">Amount to send to your bank</label>
+                <input id="withdrawAmount" name="amount" type="number" step="0.01" min="{{ '%.2f'|format(dashboard.wallet.min_withdrawal_amount) }}" placeholder="20.00" required>
+            </div>
+            <p class="panel-text">A {{ dashboard.wallet.withdrawal_fee_rate_percent }}% processing fee applies, with a minimum fee of ${{ '%.2f'|format(dashboard.wallet.withdrawal_fee_minimum) }}.</p>
+            <button type="submit" class="btn btn-secondary" {% if not dashboard.wallet.payment_methods %}disabled{% endif %}>Withdraw to bank</button>
+        </form>
+    </article>
+
+    <article class="wallet-panel wallet-panel-wide">
+        <div class="section-heading compact">
+            <h3>Recent wallet activity</h3>
+            <p>Every top-up, purchase, sale credit, and withdrawal is recorded here.</p>
+        </div>
+        {% if dashboard.wallet.recent_entries %}
+            <div class="wallet-activity-list">
+                {% for entry in dashboard.wallet.recent_entries %}
+                    <div class="wallet-activity-row">
+                        <div>
+                            <strong>{{ entry.description }}</strong>
+                            <p class="panel-text">{{ entry.created_at_display }}</p>
+                        </div>
+                        <div class="wallet-activity-meta">
+                            <span class="wallet-entry-amount {% if entry.amount > 0 %}positive{% else %}negative{% endif %}" data-wallet-sensitive data-value="{% if entry.amount > 0 %}+{% endif %}${{ '%.2f'|format(entry.amount|abs) }}">
+                                ••••
+                            </span>
+                            <span class="panel-text">
+                                Balance after:
+                                <span data-wallet-sensitive data-value="${{ '%.2f'|format(entry.balance_after) }}">••••</span>
+                            </span>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="empty-state compact">No wallet activity yet. Link a bank card, top up, or complete a sale to start building your wallet history.</div>
+        {% endif %}
+    </article>
+</div>

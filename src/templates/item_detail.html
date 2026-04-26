@@ -58,8 +58,20 @@
                 {% if current_user.is_authenticated and current_user.id != item.seller.id and not item.is_sold %}
                     <form method="post" action="{{ url_for('purchase_page', item_id=item.id) }}">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <button type="submit" class="btn btn-primary">Buy now</button>
+                        <button type="submit" class="btn btn-primary">Buy with wallet</button>
                     </form>
+                    {% if purchase_wallet %}
+                        <p class="wallet-purchase-note {% if purchase_wallet.has_enough_funds %}wallet-purchase-note-ready{% else %}wallet-purchase-note-warning{% endif %}">
+                            Wallet balance:
+                            <strong>${{ purchase_wallet.available_balance_display }}</strong>.
+                            {% if purchase_wallet.has_enough_funds %}
+                                You have enough funds for this checkout.
+                            {% else %}
+                                You need ${{ purchase_wallet.shortfall_display }} more. Top up from your
+                                <a href="{{ url_for('dashboard_page') }}#wallet">wallet</a> first.
+                            {% endif %}
+                        </p>
+                    {% endif %}
                 {% elif current_user.is_authenticated and current_user.id == item.seller.id %}
                     <a href="{{ url_for('dashboard_page') }}" class="btn btn-secondary">Open dashboard</a>
                 {% else %}

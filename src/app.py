@@ -13,7 +13,7 @@ from werkzeug.utils import secure_filename
 sys.path.insert(0, os.path.dirname(__file__))
 
 from config import config
-from models import Conversation, Item, ItemImage, Message, Transaction, User, db
+from models import Conversation, Item, ItemImage, Message, PaymentMethod, Transaction, User, Wallet, WalletEntry, db
 
 
 ITEM_CATEGORIES = ['Electronics', 'Furniture', 'Clothing', 'Books', 'Sports', 'Other']
@@ -23,6 +23,12 @@ MAX_MESSAGE_LENGTH = 600
 MAX_IMAGES_PER_ITEM = 6
 ALLOWED_IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.gif'}
 DRAFT_TITLE_PLACEHOLDER = 'Untitled draft'
+MAX_WALLET_ACTIVITY = 8
+MIN_TOP_UP_AMOUNT = 5.0
+MAX_TOP_UP_AMOUNT = 2000.0
+MIN_WITHDRAWAL_AMOUNT = 5.0
+WITHDRAWAL_FEE_RATE = 0.02
+WITHDRAWAL_FEE_MINIMUM = 0.50
 
 
 def is_valid_uwa_student_email(email):
@@ -151,6 +157,243 @@ def create_app(config_name='development'):
             ))
 
         return image_records, saved_paths
+
+    def round_money(value):
+        return round(float(value or 0) + 1e-9, 2)
+
+    def format_money(value):
+        return f'{round_money(value):.2f}'
+
+    def calculate_withdrawal_fee(amount):
+        return round_money(max(WITHDRAWAL_FEE_MINIMUM, amount * WITHDRAWAL_FEE_RATE))
+
+    def get_or_create_wallet(user, *, commit=False):
+        wallet = Wallet.query.filter_by(user_id=user.id).first()
+        if wallet:
+            return wallet
+
+        wallet = Wallet(user_id=user.id, available_balance=0.0)
+        db.session.add(wallet)
+        db.session.flush()
+        if commit:
+            db.session.commit()
+        return wallet
+
+    def ensure_existing_users_have_wallets():
+        user_ids_with_wallets = {wallet_user_id for wallet_user_id, in db.session.query(Wallet.user_id).all()}
+        missing_wallets = []
+        for user in User.query.all():
+            if user.id not in user_ids_with_wallets:
+                missing_wallets.append(Wallet(user_id=user.id, available_balance=0.0))
+
+        if missing_wallets:
+            db.session.add_all(missing_wallets)
+            db.session.commit()
+
+    def record_wallet_entry(wallet, entry_type, amount, description, *, payment_method=None, transaction=None):
+        entry = WalletEntry(
+            user_id=wallet.user_id,
+            payment_method_id=payment_method.id if payment_method else None,
+            transaction_id=transaction.id if transaction else None,
+            entry_type=entry_type,
+            amount=round_money(amount),
+            balance_after=round_money(wallet.available_balance),
+            description=description,
+        )
+        db.session.add(entry)
+        return entry
+
+    def get_user_payment_methods(user):
+        methods = PaymentMethod.query.filter_by(user_id=user.id).order_by(
+            PaymentMethod.is_default.desc(),
+            PaymentMethod.created_at.desc(),
+        ).all()
+        return methods
+
+    def get_default_payment_method(user):
+        return (
+            PaymentMethod.query
+            .filter_by(user_id=user.id, is_default=True)
+            .order_by(PaymentMethod.created_at.desc())
+            .first()
+        )
+
+    def resolve_payment_method(user, payment_method_id):
+        if payment_method_id:
+            method = db.session.get(PaymentMethod, payment_method_id)
+            if method and method.user_id == user.id:
+                return method
+            return None
+
+        default_method = get_default_payment_method(user)
+        if default_method:
+            return default_method
+
+        methods = get_user_payment_methods(user)
+        return methods[0] if methods else None
+
+    def mask_payment_number(raw_number):
+        digits_only = ''.join(character for character in raw_number if character.isdigit())
+        if len(digits_only) < 8:
+            return None, None
+        return digits_only[-4:], f'•••• {digits_only[-4:]}'
+
+    def add_payment_method(user, provider_name, account_holder, account_number, *, make_default=False):
+        provider_name = provider_name.strip()
+        account_holder = account_holder.strip()
+        last_four, masked_suffix = mask_payment_number(account_number)
+
+        if not provider_name or not account_holder or not last_four:
+            return None, 'Provider, cardholder name, and a valid bank card number are required.', 400
+
+        should_be_default = make_default or not PaymentMethod.query.filter_by(user_id=user.id).count()
+        if should_be_default:
+            PaymentMethod.query.filter_by(user_id=user.id, is_default=True).update({'is_default': False})
+
+        method = PaymentMethod(
+            user_id=user.id,
+            provider_name=provider_name,
+            account_holder=account_holder,
+            masked_details=f'{provider_name} {masked_suffix}',
+            last_four=last_four,
+            method_type='bank_card',
+            is_default=should_be_default,
+        )
+        db.session.add(method)
+        db.session.commit()
+        return method, None, 201
+
+    def top_up_wallet(user, payment_method_id, amount_raw):
+        method = resolve_payment_method(user, payment_method_id)
+        if not method:
+            return None, None, 'Link a bank card before topping up your wallet.', 400
+
+        try:
+            amount = round_money(float(amount_raw))
+        except (TypeError, ValueError):
+            return None, None, 'Top-up amount must be a valid number.', 400
+
+        if amount < MIN_TOP_UP_AMOUNT or amount > MAX_TOP_UP_AMOUNT:
+            return None, None, f'Top-ups must be between ${format_money(MIN_TOP_UP_AMOUNT)} and ${format_money(MAX_TOP_UP_AMOUNT)}.', 400
+
+        wallet = get_or_create_wallet(user)
+        wallet.available_balance = round_money(wallet.available_balance + amount)
+        entry = record_wallet_entry(
+            wallet,
+            'top_up',
+            amount,
+            f'Top-up from {method.masked_details}',
+            payment_method=method,
+        )
+        db.session.commit()
+        return wallet, entry, None, 200
+
+    def withdraw_from_wallet(user, payment_method_id, amount_raw):
+        method = resolve_payment_method(user, payment_method_id)
+        if not method:
+            return None, None, None, 'Link a bank card before requesting a withdrawal.', 400
+
+        try:
+            amount = round_money(float(amount_raw))
+        except (TypeError, ValueError):
+            return None, None, None, 'Withdrawal amount must be a valid number.', 400
+
+        if amount < MIN_WITHDRAWAL_AMOUNT:
+            return None, None, None, f'Withdrawals must be at least ${format_money(MIN_WITHDRAWAL_AMOUNT)}.', 400
+
+        wallet = get_or_create_wallet(user)
+        fee = calculate_withdrawal_fee(amount)
+        total_deduction = round_money(amount + fee)
+        if wallet.available_balance < total_deduction:
+            return None, None, None, (
+                f'Insufficient wallet balance. You need ${format_money(total_deduction)} '
+                f'available to withdraw ${format_money(amount)} after the fee.'
+            ), 400
+
+        wallet.available_balance = round_money(wallet.available_balance - amount)
+        withdrawal_entry = record_wallet_entry(
+            wallet,
+            'withdrawal',
+            -amount,
+            f'Withdrawal to {method.masked_details}',
+            payment_method=method,
+        )
+        wallet.available_balance = round_money(wallet.available_balance - fee)
+        fee_entry = record_wallet_entry(
+            wallet,
+            'withdrawal_fee',
+            -fee,
+            'Withdrawal processing fee',
+            payment_method=method,
+        )
+        db.session.commit()
+        return wallet, withdrawal_entry, fee_entry, None, 200
+
+    def serialize_payment_method(method):
+        return {
+            'id': method.id,
+            'provider_name': method.provider_name,
+            'account_holder': method.account_holder,
+            'masked_details': method.masked_details,
+            'last_four': method.last_four,
+            'method_type': method.method_type,
+            'is_default': method.is_default,
+            'created_at': method.created_at.isoformat(),
+            'created_at_display': format_timestamp(method.created_at),
+        }
+
+    def serialize_wallet_entry(entry):
+        amount = round_money(entry.amount)
+        return {
+            'id': entry.id,
+            'entry_type': entry.entry_type,
+            'description': entry.description,
+            'amount': amount,
+            'amount_display': format_money(amount),
+            'amount_sign': '+' if amount > 0 else '-',
+            'balance_after': round_money(entry.balance_after),
+            'balance_after_display': format_money(entry.balance_after),
+            'created_at': entry.created_at.isoformat(),
+            'created_at_display': format_timestamp(entry.created_at),
+            'payment_method': serialize_payment_method(entry.payment_method) if entry.payment_method else None,
+        }
+
+    def build_wallet_payload(user):
+        wallet = get_or_create_wallet(user, commit=True)
+        methods = get_user_payment_methods(user)
+        entries = (
+            WalletEntry.query
+            .filter_by(user_id=user.id)
+            .order_by(WalletEntry.created_at.desc())
+            .limit(MAX_WALLET_ACTIVITY)
+            .all()
+        )
+        return {
+            'available_balance': round_money(wallet.available_balance),
+            'available_balance_display': format_money(wallet.available_balance),
+            'payment_methods': [serialize_payment_method(method) for method in methods],
+            'default_payment_method_id': methods[0].id if methods else None,
+            'recent_entries': [serialize_wallet_entry(entry) for entry in entries],
+            'min_top_up_amount': MIN_TOP_UP_AMOUNT,
+            'max_top_up_amount': MAX_TOP_UP_AMOUNT,
+            'min_withdrawal_amount': MIN_WITHDRAWAL_AMOUNT,
+            'withdrawal_fee_rate_percent': int(WITHDRAWAL_FEE_RATE * 100),
+            'withdrawal_fee_minimum': WITHDRAWAL_FEE_MINIMUM,
+            'sensitive_hidden_by_default': True,
+        }
+
+    def build_purchase_wallet_context(user, item_price):
+        wallet = get_or_create_wallet(user, commit=True)
+        balance = round_money(wallet.available_balance)
+        item_total = round_money(item_price)
+        return {
+            'available_balance': balance,
+            'available_balance_display': format_money(balance),
+            'has_enough_funds': balance >= item_total,
+            'shortfall': round_money(max(0, item_total - balance)),
+            'shortfall_display': format_money(max(0, item_total - balance)),
+            'linked_payment_methods': len(get_user_payment_methods(user)),
+        }
 
     def csrf_failure():
         if request.path.startswith('/api/'):
@@ -329,6 +572,7 @@ def create_app(config_name='development'):
 
         return {
             'user': serialize_user(user, include_email=True),
+            'wallet': build_wallet_payload(user),
             'listings': [serialize_item(item) for item in user_items],
             'drafts': [serialize_item(item) for item in drafts],
             'purchases': [
@@ -525,6 +769,8 @@ def create_app(config_name='development'):
         user = User(username=username, email=email, full_name=full_name)
         user.set_password(password)
         db.session.add(user)
+        db.session.flush()
+        db.session.add(Wallet(user_id=user.id, available_balance=0.0))
         db.session.commit()
         return user, None, 201
 
@@ -671,16 +917,43 @@ def create_app(config_name='development'):
         if item.seller_id == buyer.id:
             return None, 'Cannot buy your own item', 400
 
+        buyer_wallet = get_or_create_wallet(buyer)
+        seller_wallet = get_or_create_wallet(item.seller)
+        item_price = round_money(item.price)
+        if buyer_wallet.available_balance < item_price:
+            shortfall = round_money(item_price - buyer_wallet.available_balance)
+            return None, (
+                f'Insufficient wallet balance. Top up ${format_money(shortfall)} more '
+                'from your linked bank card before purchasing this item.'
+            ), 400
+
         transaction = Transaction(
             item_id=item.id,
             seller_id=item.seller_id,
             buyer_id=buyer.id,
-            price=item.price,
+            price=item_price,
             status='completed',
         )
 
         item.is_sold = True
+        buyer_wallet.available_balance = round_money(buyer_wallet.available_balance - item_price)
+        seller_wallet.available_balance = round_money(seller_wallet.available_balance + item_price)
         db.session.add(transaction)
+        db.session.flush()
+        record_wallet_entry(
+            buyer_wallet,
+            'purchase',
+            -item_price,
+            f'Purchased {item.title}',
+            transaction=transaction,
+        )
+        record_wallet_entry(
+            seller_wallet,
+            'sale_proceeds',
+            item_price,
+            f'Sale proceeds held in wallet for {item.title}',
+            transaction=transaction,
+        )
         db.session.commit()
         return transaction, None, 200
 
@@ -749,6 +1022,7 @@ def create_app(config_name='development'):
     with app.app_context():
         db.create_all()
         ensure_schema_supports_drafts()
+        ensure_existing_users_have_wallets()
 
     @app.route('/')
     def index():
@@ -972,7 +1246,11 @@ def create_app(config_name='development'):
             flash(error, 'error')
             return redirect(url_for('item_detail_page', item_id=item.id))
 
-        flash(f'Purchase completed for {transaction.item.title}.', 'success')
+        flash(
+            f'Purchase completed for {transaction.item.title}. '
+            f'${format_money(transaction.price)} was paid from your wallet and moved into the seller wallet.',
+            'success',
+        )
         return redirect(url_for('dashboard_page'))
 
     @app.route('/item/<int:item_id>')
@@ -988,10 +1266,15 @@ def create_app(config_name='development'):
             flash('This listing is currently saved as a draft. Edit it to publish or continue working on it.', 'error')
             return redirect(url_for('edit_listing_page', item_id=item.id))
 
+        purchase_wallet = None
+        if current_user.is_authenticated and current_user.id != item.seller_id:
+            purchase_wallet = build_purchase_wallet_context(current_user, item.price)
+
         return render_template(
             'item_detail.html',
             item=serialize_item(item),
             chat=resolve_item_chat_context(item),
+            purchase_wallet=purchase_wallet,
         )
 
     @app.route('/item/<int:item_id>/conversation', methods=['POST'])
@@ -1036,6 +1319,64 @@ def create_app(config_name='development'):
         if conversation.item.seller_id == current_user.id:
             return redirect(url_for('item_detail_page', item_id=conversation.item.id, conversation=conversation.id) + '#chat')
         return redirect(url_for('dashboard_page', conversation=conversation.id) + '#inbox')
+
+    @app.route('/wallet/payment-methods', methods=['POST'])
+    @login_required
+    @csrf_protect
+    def wallet_payment_methods_page():
+        method, error, _ = add_payment_method(
+            current_user,
+            request.form.get('provider_name', ''),
+            request.form.get('account_holder', ''),
+            request.form.get('account_number', ''),
+            make_default=request.form.get('is_default') == 'on',
+        )
+        if error:
+            flash(error, 'error')
+            return redirect(url_for('dashboard_page') + '#wallet')
+
+        flash(f'Linked {method.masked_details}. Only masked payment details are stored in this demo.', 'success')
+        return redirect(url_for('dashboard_page') + '#wallet')
+
+    @app.route('/wallet/top-up', methods=['POST'])
+    @login_required
+    @csrf_protect
+    def wallet_top_up_page():
+        wallet, entry, error, _ = top_up_wallet(
+            current_user,
+            request.form.get('payment_method_id', type=int),
+            request.form.get('amount', ''),
+        )
+        if error:
+            flash(error, 'error')
+            return redirect(url_for('dashboard_page') + '#wallet')
+
+        flash(
+            f'Wallet topped up by ${format_money(entry.amount)}. '
+            f'Available balance is now ${format_money(wallet.available_balance)}.',
+            'success',
+        )
+        return redirect(url_for('dashboard_page') + '#wallet')
+
+    @app.route('/wallet/withdraw', methods=['POST'])
+    @login_required
+    @csrf_protect
+    def wallet_withdraw_page():
+        wallet, withdrawal_entry, fee_entry, error, _ = withdraw_from_wallet(
+            current_user,
+            request.form.get('payment_method_id', type=int),
+            request.form.get('amount', ''),
+        )
+        if error:
+            flash(error, 'error')
+            return redirect(url_for('dashboard_page') + '#wallet')
+
+        flash(
+            f'Withdrawal of ${format_money(abs(withdrawal_entry.amount))} requested to '
+            f'{withdrawal_entry.payment_method.masked_details}. Fee charged: ${format_money(abs(fee_entry.amount))}.',
+            'success',
+        )
+        return redirect(url_for('dashboard_page') + '#wallet')
 
     @app.route('/dashboard')
     @login_required
@@ -1203,7 +1544,7 @@ def create_app(config_name='development'):
 
         return jsonify({
             'success': True,
-            'message': 'Purchase completed successfully',
+            'message': 'Purchase completed successfully using wallet funds',
             'transaction': {
                 'id': transaction.id,
                 'item_id': transaction.item_id,
@@ -1345,6 +1686,10 @@ def create_app(config_name='development'):
                 'allowed_email_domain': UWA_STUDENT_DOMAIN,
                 'chat_enabled': True,
                 'max_images_per_item': MAX_IMAGES_PER_ITEM,
+                'wallet_enabled': True,
+                'min_top_up_amount': MIN_TOP_UP_AMOUNT,
+                'min_withdrawal_amount': MIN_WITHDRAWAL_AMOUNT,
+                'withdrawal_fee_rate_percent': int(WITHDRAWAL_FEE_RATE * 100),
             },
         }), 200
 

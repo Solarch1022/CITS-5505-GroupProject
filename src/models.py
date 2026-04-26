@@ -24,6 +24,21 @@ class User(db.Model):
     seller_conversations = db.relationship('Conversation', backref='seller', lazy=True, foreign_keys='Conversation.seller_id')
     buyer_conversations = db.relationship('Conversation', backref='buyer', lazy=True, foreign_keys='Conversation.buyer_id')
     sent_messages = db.relationship('Message', backref='sender', lazy=True, foreign_keys='Message.sender_id')
+    wallet = db.relationship('Wallet', backref='user', uselist=False, cascade='all, delete-orphan')
+    payment_methods = db.relationship(
+        'PaymentMethod',
+        backref='user',
+        lazy=True,
+        cascade='all, delete-orphan',
+        order_by='PaymentMethod.created_at.desc()'
+    )
+    wallet_entries = db.relationship(
+        'WalletEntry',
+        backref='user',
+        lazy=True,
+        cascade='all, delete-orphan',
+        order_by='WalletEntry.created_at.desc()'
+    )
     
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -96,6 +111,64 @@ class Transaction(db.Model):
     
     def __repr__(self):
         return f'<Transaction {self.id}>'
+
+
+class Wallet(db.Model):
+    __tablename__ = 'wallets'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, unique=True, index=True)
+    available_balance = db.Column(db.Float, default=0.0, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<Wallet user={self.user_id} balance={self.available_balance}>'
+
+
+class PaymentMethod(db.Model):
+    __tablename__ = 'payment_methods'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    provider_name = db.Column(db.String(80), nullable=False)
+    account_holder = db.Column(db.String(120), nullable=False)
+    masked_details = db.Column(db.String(80), nullable=False)
+    last_four = db.Column(db.String(4), nullable=False)
+    method_type = db.Column(db.String(30), default='bank_card', nullable=False)
+    is_default = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        db.Index('idx_payment_method_user_created', 'user_id', 'created_at'),
+    )
+
+    def __repr__(self):
+        return f'<PaymentMethod user={self.user_id} last4={self.last_four}>'
+
+
+class WalletEntry(db.Model):
+    __tablename__ = 'wallet_entries'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    payment_method_id = db.Column(db.Integer, db.ForeignKey('payment_methods.id'), nullable=True, index=True)
+    transaction_id = db.Column(db.Integer, db.ForeignKey('transactions.id'), nullable=True, index=True)
+    entry_type = db.Column(db.String(40), nullable=False, index=True)
+    amount = db.Column(db.Float, nullable=False)
+    balance_after = db.Column(db.Float, nullable=False)
+    description = db.Column(db.String(255), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    payment_method = db.relationship('PaymentMethod', backref=db.backref('wallet_entries', lazy=True))
+    transaction = db.relationship('Transaction', backref=db.backref('wallet_entries', lazy=True))
+
+    __table_args__ = (
+        db.Index('idx_wallet_entry_user_created', 'user_id', 'created_at'),
+    )
+
+    def __repr__(self):
+        return f'<WalletEntry user={self.user_id} type={self.entry_type} amount={self.amount}>'
 
 
 class ItemImage(db.Model):
