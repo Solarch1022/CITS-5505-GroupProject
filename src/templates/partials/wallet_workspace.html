@@ -24,6 +24,55 @@
         </div>
     </article>
 
+    <div class="wallet-column-stack">
+        <article class="wallet-panel">
+            <div class="section-heading compact">
+                <h3>Top up wallet</h3>
+                <p>Move money from a linked bank card into your on-platform balance before checkout.</p>
+            </div>
+            <form method="post" action="{{ url_for('wallet_top_up_page') }}" class="wallet-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <div class="form-group">
+                    <label for="topUpMethod">Top up from</label>
+                    <select id="topUpMethod" name="payment_method_id" {% if not dashboard.wallet.payment_methods %}disabled{% endif %}>
+                        {% for method in dashboard.wallet.payment_methods %}
+                            <option value="{{ method.id }}" {% if method.is_default %}selected{% endif %}>{{ method.provider_name }} ending {{ method.last_four }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="topUpAmount">Top-up amount</label>
+                    <input id="topUpAmount" name="amount" type="number" step="0.01" min="{{ '%.2f'|format(dashboard.wallet.min_top_up_amount) }}" placeholder="50.00" required>
+                </div>
+                <button type="submit" class="btn btn-primary" {% if not dashboard.wallet.payment_methods %}disabled{% endif %}>Top up wallet</button>
+            </form>
+        </article>
+
+        <article class="wallet-panel">
+            <div class="section-heading compact">
+                <h3>Withdraw to bank</h3>
+                <p>Move sale proceeds or remaining wallet balance back to one of your linked cards.</p>
+            </div>
+            <form method="post" action="{{ url_for('wallet_withdraw_page') }}" class="wallet-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <div class="form-group">
+                    <label for="withdrawMethod">Withdraw to</label>
+                    <select id="withdrawMethod" name="payment_method_id" {% if not dashboard.wallet.payment_methods %}disabled{% endif %}>
+                        {% for method in dashboard.wallet.payment_methods %}
+                            <option value="{{ method.id }}" {% if method.is_default %}selected{% endif %}>{{ method.provider_name }} ending {{ method.last_four }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="withdrawAmount">Amount to send to your bank</label>
+                    <input id="withdrawAmount" name="amount" type="number" step="0.01" min="{{ '%.2f'|format(dashboard.wallet.min_withdrawal_amount) }}" placeholder="20.00" required>
+                </div>
+                <p class="panel-text">A {{ dashboard.wallet.withdrawal_fee_rate_percent }}% processing fee applies, with a minimum fee of ${{ '%.2f'|format(dashboard.wallet.withdrawal_fee_minimum) }}.</p>
+                <button type="submit" class="btn btn-secondary" {% if not dashboard.wallet.payment_methods %}disabled{% endif %}>Withdraw to bank</button>
+            </form>
+        </article>
+    </div>
+
     <article class="wallet-panel">
         <div class="section-heading compact">
             <h3>Linked bank cards</h3>
@@ -67,47 +116,6 @@
                 Set as default payment method
             </label>
             <button type="submit" class="btn btn-secondary">Link card</button>
-        </form>
-    </article>
-
-    <article class="wallet-panel">
-        <div class="section-heading compact">
-            <h3>Top up and withdraw</h3>
-            <p>Buyers spend from wallet funds. Sellers receive sale proceeds in this wallet until they withdraw.</p>
-        </div>
-        <form method="post" action="{{ url_for('wallet_top_up_page') }}" class="wallet-form">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <div class="form-group">
-                <label for="topUpMethod">Top up from</label>
-                <select id="topUpMethod" name="payment_method_id" {% if not dashboard.wallet.payment_methods %}disabled{% endif %}>
-                    {% for method in dashboard.wallet.payment_methods %}
-                        <option value="{{ method.id }}" {% if method.is_default %}selected{% endif %}>{{ method.provider_name }} ending {{ method.last_four }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="form-group">
-                <label for="topUpAmount">Top-up amount</label>
-                <input id="topUpAmount" name="amount" type="number" step="0.01" min="{{ '%.2f'|format(dashboard.wallet.min_top_up_amount) }}" placeholder="50.00" required>
-            </div>
-            <button type="submit" class="btn btn-primary" {% if not dashboard.wallet.payment_methods %}disabled{% endif %}>Top up wallet</button>
-        </form>
-
-        <form method="post" action="{{ url_for('wallet_withdraw_page') }}" class="wallet-form">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <div class="form-group">
-                <label for="withdrawMethod">Withdraw to</label>
-                <select id="withdrawMethod" name="payment_method_id" {% if not dashboard.wallet.payment_methods %}disabled{% endif %}>
-                    {% for method in dashboard.wallet.payment_methods %}
-                        <option value="{{ method.id }}" {% if method.is_default %}selected{% endif %}>{{ method.provider_name }} ending {{ method.last_four }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="form-group">
-                <label for="withdrawAmount">Amount to send to your bank</label>
-                <input id="withdrawAmount" name="amount" type="number" step="0.01" min="{{ '%.2f'|format(dashboard.wallet.min_withdrawal_amount) }}" placeholder="20.00" required>
-            </div>
-            <p class="panel-text">A {{ dashboard.wallet.withdrawal_fee_rate_percent }}% processing fee applies, with a minimum fee of ${{ '%.2f'|format(dashboard.wallet.withdrawal_fee_minimum) }}.</p>
-            <button type="submit" class="btn btn-secondary" {% if not dashboard.wallet.payment_methods %}disabled{% endif %}>Withdraw to bank</button>
         </form>
     </article>
 

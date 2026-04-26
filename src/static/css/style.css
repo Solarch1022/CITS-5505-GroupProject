@@ -1616,6 +1616,11 @@ main {
     gap: 1rem;
 }
 
+.wallet-column-stack {
+    display: grid;
+    gap: 1rem;
+}
+
 .wallet-panel-wide {
     grid-column: 1 / -1;
 }
