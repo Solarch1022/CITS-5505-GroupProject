@@ -15,14 +15,30 @@
                 <li><a href="{{ url_for('index') }}">Home</a></li>
                 <li><a href="{{ url_for('browse_items') }}">Browse</a></li>
                 {% if current_user.is_authenticated %}
-                    <li><a href="{{ url_for('dashboard_page') }}">Inbox</a></li>
-                    <li><span class="nav-user">{{ current_user.username }}</span></li>
                     <li><a href="{{ url_for('sell_item_page') }}" class="btn-sell">Sell</a></li>
-                    <li>
-                        <form method="post" action="{{ url_for('logout_page') }}" class="nav-inline-form">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                            <button type="submit" class="nav-link-button">Logout</button>
-                        </form>
+                    <li class="nav-user-dropdown">
+                        <button class="nav-user-button" id="userMenuBtn">
+                            <span class="user-icon">👤</span>
+                            <span class="username">{{ current_user.username }}</span>
+                        </button>
+                        <div class="dropdown-menu" id="userDropdown">
+                            <a href="{{ url_for('dashboard_page') }}" class="dropdown-item">
+                                <span class="dropdown-icon">📬</span>
+                                <span>Inbox</span>
+                            </a>
+                            <a href="{{ url_for('profile_page') }}" class="dropdown-item">
+                                <span class="dropdown-icon">👤</span>
+                                <span>Profile</span>
+                            </a>
+                            <hr class="dropdown-divider">
+                            <form method="post" action="{{ url_for('logout_page') }}" class="dropdown-form">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <button type="submit" class="dropdown-item dropdown-logout">
+                                    <span class="dropdown-icon">🚪</span>
+                                    <span>Logout</span>
+                                </button>
+                            </form>
+                        </div>
                     </li>
                 {% else %}
                     <li><a href="{{ url_for('login_page') }}">Login</a></li>

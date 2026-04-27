@@ -1383,6 +1383,11 @@ def create_app(config_name='development'):
     def dashboard_page():
         return render_template('dashboard.html', **resolve_dashboard_context(current_user))
 
+    @app.route('/profile')
+    @login_required
+    def profile_page():
+        return render_template('profile.html', user=current_user)
+
     @app.route('/api/auth/register', methods=['POST'])
     @csrf_protect
     def api_auth_register():
