@@ -1,0 +1,213 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if user %}{{ user.full_name }} - Profile{% else %}User Profile{% endif %} | UWA SecondHand{% endblock %}
+
+{% block content %}
+    <section class="profile-container">
+        <div class="profile-header">
+            <div class="profile-avatar">
+                <span class="avatar-icon">👤</span>
+            </div>
+            <div class="profile-info">
+                <h1>{{ user.full_name or user.username }}</h1>
+                <p class="profile-username">@{{ user.username }}</p>
+                <p class="profile-email">{{ user.email }}</p>
+                {% if user.bio %}
+                    <p class="profile-bio">{{ user.bio }}</p>
+                {% endif %}
+                <p class="profile-joined">Joined {{ user.created_at.strftime('%B %Y') }}</p>
+            </div>
+        </div>
+
+        <div class="profile-actions">
+            <a href="{{ url_for('dashboard_page') }}" class="btn btn-primary">Go to Dashboard</a>
+            <a href="{{ url_for('browse_items') }}" class="btn btn-secondary">Browse Items</a>
+        </div>
+
+        <div class="profile-grid">
+            <div class="profile-section">
+                <h2>Account Information</h2>
+                <div class="profile-details">
+                    <div class="detail-row">
+                        <span class="detail-label">Username:</span>
+                        <span class="detail-value">{{ user.username }}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Email:</span>
+                        <span class="detail-value">{{ user.email }}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Full Name:</span>
+                        <span class="detail-value">{{ user.full_name or 'Not set' }}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Member Since:</span>
+                        <span class="detail-value">{{ user.created_at.strftime('%d %B %Y') }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="profile-section">
+                <h2>Activity</h2>
+                <div class="activity-stats">
+                    <div class="stat-box">
+                        <span class="stat-number">{{ user.items|length }}</span>
+                        <span class="stat-label">Items Listed</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-number">{{ user.seller_transactions|length }}</span>
+                        <span class="stat-label">Sales</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-number">{{ user.buyer_transactions|length }}</span>
+                        <span class="stat-label">Purchases</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <style scoped>
+        .profile-container {
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 0 20px;
+        }
+
+        .profile-header {
+            display: flex;
+            gap: 2rem;
+            margin-bottom: 2rem;
+            backdrop-filter: blur(10px);
+            background-color: rgba(255, 255, 255, 0.5);
+            padding: 2rem;
+            border-radius: 12px;
+            border: 1px solid rgba(231, 76, 60, 0.1);
+        }
+
+        .profile-avatar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 120px;
+            height: 120px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .avatar-icon {
+            font-size: 3rem;
+        }
+
+        .profile-info h1 {
+            margin: 0 0 0.5rem 0;
+            font-size: 2rem;
+            color: #2c3e50;
+        }
+
+        .profile-username {
+            color: #7f8c8d;
+            margin: 0.25rem 0;
+            font-weight: 500;
+        }
+
+        .profile-email {
+            color: #95a5a6;
+            margin: 0.25rem 0;
+            font-size: 0.95rem;
+        }
+
+        .profile-bio {
+            color: #34495e;
+            margin: 0.75rem 0 0 0;
+            font-style: italic;
+        }
+
+        .profile-joined {
+            color: #95a5a6;
+            margin: 0.5rem 0 0 0;
+            font-size: 0.9rem;
+        }
+
+        .profile-actions {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            justify-content: center;
+        }
+
+        .profile-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 2rem;
+        }
+
+        .profile-section {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            border: 1px solid #ecf0f1;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+
+        .profile-section h2 {
+            margin-top: 0;
+            margin-bottom: 1.5rem;
+            color: #2c3e50;
+            font-size: 1.3rem;
+        }
+
+        .profile-details {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.75rem;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+
+        .detail-label {
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .detail-value {
+            color: #7f8c8d;
+        }
+
+        .activity-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+        }
+
+        .stat-box {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 1.5rem;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #ecf0f1;
+        }
+
+        .stat-number {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #e74c3c;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-label {
+            font-size: 0.85rem;
+            color: #7f8c8d;
+            text-align: center;
+        }
+    </style>
+{% endblock %}

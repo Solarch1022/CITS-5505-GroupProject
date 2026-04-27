@@ -4,47 +4,58 @@
 
 ### 1. Open the project directory
 
-```powershell
-cd C:\Users\26247\Desktop\CITS-5505-GroupProject
+```bash
+cd CITS-5505-GroupProject
 ```
 
 ### 2. Create a virtual environment
 
-```powershell
-py -3.11 -m venv venv
+```bash
+python3.11 -m venv venv
 ```
 
 ### 3. Activate the virtual environment
 
+**macOS/Linux:**
+```bash
+source venv/bin/activate
+```
+
+**Windows (PowerShell):**
 ```powershell
 .\venv\Scripts\Activate.ps1
 ```
 
 ### 4. Install dependencies
 
-```powershell
+```bash
 pip install -r requirements.txt
 ```
 
 ### 5. Create the environment file
 
+**macOS/Linux:**
+```bash
+cp .env.example .env
+```
+
+**Windows:**
 ```powershell
 Copy-Item .env.example .env
 ```
 
 ### 6. Run the development server
 
-Default port:
+Default port (8000):
 
-```powershell
-python src\app.py
+```bash
+python src/app.py
 ```
 
 If port `8000` is already occupied:
 
-```powershell
-$env:PORT=5000
-python src\app.py
+```bash
+PORT=5000 python src/app.py
 ```
 
 ### 7. Open in your browser
