@@ -1,7 +1,7 @@
 import unittest
 
 from src.app import create_app
-from models import Conversation, Item, Message, User, db
+from models import Conversation, Item, Message, PaymentMethod, Transaction, User, Wallet, WalletEntry, db
 
 
 class MarketplaceAppTestCase(unittest.TestCase):
@@ -57,6 +57,22 @@ class MarketplaceAppTestCase(unittest.TestCase):
         db.session.add(user)
         db.session.commit()
         return user
+
+    def link_payment_method(self, provider_name='CommBank', account_holder='Test User', account_number='4111111111111111'):
+        csrf_token = self.get_csrf_token()
+        return self.post_form('/wallet/payment-methods', {
+            'provider_name': provider_name,
+            'account_holder': account_holder,
+            'account_number': account_number,
+            'is_default': 'on',
+        }, csrf_token=csrf_token)
+
+    def top_up_wallet(self, amount, payment_method_id=None):
+        csrf_token = self.get_csrf_token()
+        payload = {'amount': amount}
+        if payment_method_id:
+            payload['payment_method_id'] = payment_method_id
+        return self.post_form('/wallet/top-up', payload, csrf_token=csrf_token)
 
     def test_root_route_serves_home_page(self):
         response = self.client.get('/')
@@ -123,6 +139,32 @@ class MarketplaceAppTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertTrue(data['success'])
         self.assertEqual(data['item']['title'], 'Desk Lamp')
+
+    def test_wallet_payment_method_and_top_up_store_masked_details(self):
+        self.register_user('walletuser', 'walletuser@student.uwa.edu.au')
+        self.login_user('walletuser')
+
+        link_response = self.link_payment_method()
+        self.assertEqual(link_response.status_code, 302)
+
+        with self.app.app_context():
+            user = User.query.filter_by(username='walletuser').first()
+            payment_method = PaymentMethod.query.filter_by(user_id=user.id).first()
+            self.assertIsNotNone(payment_method)
+            self.assertEqual(payment_method.last_four, '1111')
+            self.assertIn('•••• 1111', payment_method.masked_details)
+            self.assertNotIn('4111111111111111', payment_method.masked_details)
+
+        top_up_response = self.top_up_wallet('75.00')
+        self.assertEqual(top_up_response.status_code, 302)
+
+        with self.app.app_context():
+            user = User.query.filter_by(username='walletuser').first()
+            wallet = Wallet.query.filter_by(user_id=user.id).first()
+            top_up_entry = WalletEntry.query.filter_by(user_id=user.id, entry_type='top_up').first()
+            self.assertIsNotNone(wallet)
+            self.assertAlmostEqual(wallet.available_balance, 75.0)
+            self.assertIsNotNone(top_up_entry)
 
     def test_save_draft_hides_listing_from_public_browse(self):
         self.register_user('seller', 'seller@student.uwa.edu.au')
@@ -198,6 +240,123 @@ class MarketplaceAppTestCase(unittest.TestCase):
 
         with self.app.app_context():
             self.assertIsNone(db.session.get(Item, item_id))
+
+    def test_purchase_uses_wallet_balance_and_credits_seller_wallet(self):
+        with self.app.app_context():
+            seller = self.create_user('sellerwallet', 'sellerwallet@student.uwa.edu.au', full_name='Seller Wallet')
+            buyer = self.create_user('buyerwallet', 'buyerwallet@student.uwa.edu.au', full_name='Buyer Wallet')
+            item = Item(
+                title='Monitor',
+                description='24-inch monitor suitable for campus study setups.',
+                price=80,
+                category='Electronics',
+                condition='Good',
+                seller_id=seller.id,
+            )
+            db.session.add(item)
+            db.session.commit()
+            item_id = item.id
+
+        self.login_user('buyerwallet')
+        self.link_payment_method(provider_name='NAB', account_holder='Buyer Wallet', account_number='4000123412341234')
+        self.top_up_wallet('100.00')
+        csrf_token = self.get_csrf_token()
+        purchase_response = self.post_form(f'/purchase/{item_id}', {}, csrf_token=csrf_token)
+        self.assertEqual(purchase_response.status_code, 302)
+
+        with self.app.app_context():
+            transaction = Transaction.query.filter_by(item_id=item_id, status='completed').first()
+            buyer = User.query.filter_by(username='buyerwallet').first()
+            seller = User.query.filter_by(username='sellerwallet').first()
+            buyer_wallet = Wallet.query.filter_by(user_id=buyer.id).first()
+            seller_wallet = Wallet.query.filter_by(user_id=seller.id).first()
+            purchase_entry = WalletEntry.query.filter_by(user_id=buyer.id, entry_type='purchase').first()
+            sale_entry = WalletEntry.query.filter_by(user_id=seller.id, entry_type='sale_proceeds').first()
+            item = db.session.get(Item, item_id)
+
+            self.assertIsNotNone(transaction)
+            self.assertTrue(item.is_sold)
+            self.assertAlmostEqual(buyer_wallet.available_balance, 20.0)
+            self.assertAlmostEqual(seller_wallet.available_balance, 80.0)
+            self.assertIsNotNone(purchase_entry)
+            self.assertIsNotNone(sale_entry)
+
+    def test_purchase_fails_when_wallet_balance_is_insufficient(self):
+        with self.app.app_context():
+            seller = self.create_user('sellerlow', 'sellerlow@student.uwa.edu.au')
+            buyer = self.create_user('buyerlow', 'buyerlow@student.uwa.edu.au')
+            item = Item(
+                title='Desk',
+                description='Solid desk for a dorm room or study nook.',
+                price=55,
+                category='Furniture',
+                condition='Good',
+                seller_id=seller.id,
+            )
+            db.session.add(item)
+            db.session.commit()
+            item_id = item.id
+
+        self.login_user('buyerlow')
+        csrf_token = self.get_csrf_token()
+        response = self.post_json(f'/api/purchase/{item_id}', {}, csrf_token=csrf_token)
+        data = response.get_json()
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(data['success'])
+        self.assertIn('Insufficient wallet balance', data['error'])
+
+    def test_withdrawal_applies_processing_fee(self):
+        with self.app.app_context():
+            user = self.create_user('withdrawuser', 'withdrawuser@student.uwa.edu.au', full_name='Withdraw User')
+            wallet = Wallet(user_id=user.id, available_balance=120.0)
+            method = PaymentMethod(
+                user_id=user.id,
+                provider_name='ANZ',
+                account_holder='Withdraw User',
+                masked_details='ANZ •••• 3456',
+                last_four='3456',
+                is_default=True,
+            )
+            db.session.add_all([wallet, method])
+            db.session.commit()
+            method_id = method.id
+
+        self.login_user('withdrawuser')
+        csrf_token = self.get_csrf_token()
+        response = self.post_form('/wallet/withdraw', {
+            'payment_method_id': method_id,
+            'amount': '30.00',
+        }, csrf_token=csrf_token)
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            user = User.query.filter_by(username='withdrawuser').first()
+            wallet = Wallet.query.filter_by(user_id=user.id).first()
+            withdrawal_entry = WalletEntry.query.filter_by(user_id=user.id, entry_type='withdrawal').first()
+            fee_entry = WalletEntry.query.filter_by(user_id=user.id, entry_type='withdrawal_fee').first()
+
+            self.assertAlmostEqual(wallet.available_balance, 89.4)
+            self.assertIsNotNone(withdrawal_entry)
+            self.assertIsNotNone(fee_entry)
+            self.assertAlmostEqual(abs(fee_entry.amount), 0.6)
+
+    def test_dashboard_masks_wallet_balances_by_default(self):
+        with self.app.app_context():
+            user = self.create_user('maskeduser', 'maskeduser@student.uwa.edu.au')
+            wallet = Wallet(user_id=user.id, available_balance=88.75)
+            db.session.add(wallet)
+            db.session.commit()
+
+        self.login_user('maskeduser')
+        response = self.client.get('/dashboard')
+        body = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('data-wallet-launch', body)
+        self.assertIn('wallet-modal-backdrop hidden', body)
+        self.assertIn('data-wallet-toggle', body)
+        self.assertIn('data-wallet-sensitive', body)
 
     def test_buyer_can_start_conversation_and_send_message(self):
         with self.app.app_context():
