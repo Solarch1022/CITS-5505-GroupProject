@@ -17,7 +17,8 @@ class User(db.Model):
     bio = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
+    referral_code = db.Column(db.String(20), unique=True, index=True)
+
     items = db.relationship('Item', backref='seller', lazy=True, foreign_keys='Item.seller_id')
     seller_transactions = db.relationship('Transaction', backref='seller', lazy=True, foreign_keys='Transaction.seller_id')
     buyer_transactions = db.relationship('Transaction', backref='buyer', lazy=True, foreign_keys='Transaction.buyer_id')
@@ -38,6 +39,19 @@ class User(db.Model):
         lazy=True,
         cascade='all, delete-orphan',
         order_by='WalletEntry.created_at.desc()'
+    )
+    referrals_made = db.relationship(
+    'Referral',
+    backref='referrer',
+    lazy=True,
+    foreign_keys='Referral.referrer_id'
+    )
+    referral_received = db.relationship(
+    'Referral',
+    backref='referred_user',
+    lazy=True,
+    foreign_keys='Referral.referred_user_id',
+    uselist=False
     )
     
     def set_password(self, password):
@@ -113,6 +127,20 @@ class Transaction(db.Model):
     
     def __repr__(self):
         return f'<Transaction {self.id}>'
+
+
+class Referral(db.Model):
+    __tablename__ = 'referrals'
+
+    id = db.Column(db.Integer, primary_key=True)
+    referrer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    referred_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, unique=True, index=True)
+    referral_code = db.Column(db.String(20), nullable=False, index=True)
+    reward_amount = db.Column(db.Float, default=5.0, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    def __repr__(self):
+        return f'<Referral {self.referrer_id} -> {self.referred_user_id}>'
 
 
 class Wallet(db.Model):

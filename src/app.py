@@ -13,7 +13,7 @@ from werkzeug.utils import secure_filename
 sys.path.insert(0, os.path.dirname(__file__))
 
 from config import config
-from models import Conversation, Item, ItemImage, Message, PaymentMethod, Transaction, User, Wallet, WalletEntry, CartItem, db
+from models import Conversation, Item, ItemImage, Message, PaymentMethod, Referral, Transaction, User, Wallet, WalletEntry, CartItem, db
 
 
 ITEM_CATEGORIES = ['Electronics', 'Furniture', 'Clothing', 'Books', 'Sports', 'Other']
@@ -29,6 +29,9 @@ MAX_TOP_UP_AMOUNT = 2000.0
 MIN_WITHDRAWAL_AMOUNT = 5.0
 WITHDRAWAL_FEE_RATE = 0.02
 WITHDRAWAL_FEE_MINIMUM = 0.50
+REFERRAL_REWARD_AMOUNT = 5.0
+REFERRAL_REQUIRED_COMPLETED_TRADES = 3
+REFERRAL_REQUIRED_REPUTATION = 4.0
 
 
 def is_valid_uwa_student_email(email):
@@ -129,6 +132,20 @@ def create_app(config_name='development'):
 
         with db.engine.begin() as connection:
             connection.execute(text('ALTER TABLE items ADD COLUMN is_draft BOOLEAN NOT NULL DEFAULT 0'))
+
+    def ensure_schema_supports_referrals():
+        inspector = inspect(db.engine)
+        table_names = inspector.get_table_names()
+
+        if 'users' in table_names:
+            user_columns = {column['name'] for column in inspector.get_columns('users')}
+            with db.engine.begin() as connection:
+                if 'referral_code' not in user_columns:
+                    connection.execute(text('ALTER TABLE users ADD COLUMN referral_code VARCHAR(20)'))
+
+        if 'referrals' not in table_names:
+            Referral.__table__.create(db.engine)
+    
 
     def save_item_images(item, image_files):
         image_records = []
@@ -463,6 +480,74 @@ def create_app(config_name='development'):
             'completed_purchases': completed_purchases,
             'active_listings': active_listings,
         }
+    
+    def is_referral_eligible(user):
+        reputation = get_user_reputation(user)
+        completed_trades = reputation['completed_sales'] + reputation['completed_purchases']
+
+        return (
+            completed_trades >= REFERRAL_REQUIRED_COMPLETED_TRADES
+            or reputation['score'] >= REFERRAL_REQUIRED_REPUTATION
+        )
+
+
+    def generate_referral_code_for_user(user):
+        if user.referral_code:
+            return user.referral_code
+
+        while True:
+            code = f'UWA{secrets.token_hex(4).upper()}'
+            existing_user = User.query.filter_by(referral_code=code).first()
+
+            if not existing_user:
+                user.referral_code = code
+                db.session.commit()
+                return code
+
+
+    def apply_referral_reward(new_user, referral_code):
+        if not referral_code:
+            return
+
+        code = referral_code.strip().upper()
+        if not code:
+            return
+
+        referrer = User.query.filter_by(referral_code=code).first()
+
+        if not referrer:
+            return
+
+        if referrer.id == new_user.id:
+            return
+
+        existing_referral = Referral.query.filter_by(referred_user_id=new_user.id).first()
+        if existing_referral:
+            return
+
+        referrer_wallet = get_or_create_wallet(referrer)
+
+        referrer_wallet.available_balance = round_money(
+            referrer_wallet.available_balance + REFERRAL_REWARD_AMOUNT
+        )
+
+        referral = Referral(
+            referrer_id=referrer.id,
+            referred_user_id=new_user.id,
+            referral_code=code,
+            reward_amount=REFERRAL_REWARD_AMOUNT,
+        )
+
+        db.session.add(referral)
+
+        record_wallet_entry(
+            referrer_wallet,
+            'referral_reward',
+            REFERRAL_REWARD_AMOUNT,
+            f'Referral reward for inviting {new_user.username}',
+        )
+
+        db.session.commit()
 
     def serialize_user(user, include_email=False):
         payload = {
@@ -472,6 +557,8 @@ def create_app(config_name='development'):
             'bio': user.bio or '',
             'is_uwa_verified': is_valid_uwa_student_email(user.email),
             'reputation': get_user_reputation(user),
+            'referral_code': user.referral_code,
+            'referral_eligible': is_referral_eligible(user),
         }
         if include_email:
             payload['email'] = user.email
@@ -1075,6 +1162,7 @@ def create_app(config_name='development'):
     with app.app_context():
         db.create_all()
         ensure_schema_supports_drafts()
+        ensure_schema_supports_referrals()
         ensure_existing_users_have_wallets()
         ensure_admin_account_exists()
 
@@ -1153,6 +1241,8 @@ def create_app(config_name='development'):
             if error:
                 flash(error, 'error')
                 return render_template('register.html', form_data=request.form.to_dict()), status
+
+            apply_referral_reward(user, request.form.get('referral_code', ''))
 
             flash('Registration successful. Please login with your new account.', 'success')
             return redirect(url_for('login_page', username=user.username))
@@ -1444,6 +1534,21 @@ def create_app(config_name='development'):
     @login_required
     def dashboard_page():
         return render_template('dashboard.html', **resolve_dashboard_context(current_user))
+
+    @app.route('/referral/generate', methods=['POST'])
+    @login_required
+    @csrf_protect
+    def generate_referral_code_route():
+        if not is_referral_eligible(current_user):
+            flash(
+                'You need at least 3 completed trades or a reputation score of 4.0+ to generate a referral code.',
+                'error'
+            )
+            return redirect(url_for('dashboard_page'))
+
+        code = generate_referral_code_for_user(current_user)
+        flash(f'Your referral code has been generated: {code}', 'success')
+        return redirect(url_for('dashboard_page'))
 
     @app.route('/profile')
     @login_required
