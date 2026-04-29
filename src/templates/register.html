@@ -30,6 +30,17 @@
                     <input type="password" id="registerPassword" name="password" minlength="6" required>
                 </div>
 
+                <div class="form-group">
+                    <label for="referralCode">Referral Code (optional)</label>
+                    <input 
+                        type="text" 
+                        id="referralCode" 
+                        name="referral_code"
+                        value="{{ form_data.get('referral_code', '') }}"
+                        placeholder="Enter invitation code if you have one"
+                    >
+                </div>
+
                 <button type="submit" class="btn btn-primary">Register</button>
             </form>
 

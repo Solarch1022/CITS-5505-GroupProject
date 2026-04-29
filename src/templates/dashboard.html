@@ -35,6 +35,45 @@
             </div>
         </div>
 
+        <section class="dashboard-section">
+            <h2>Referral Invitation</h2>
+
+            {% if dashboard.user.referral_code %}
+                <p>Your referral code:</p>
+                <div style="display: flex; align-items: center; gap: 10px; margin: 8px 0;">
+                    <strong id="referralCodeText">{{ dashboard.user.referral_code }}</strong>
+
+                    <button 
+                        type="button"
+                        class="btn btn-sm btn-secondary"
+                        data-copy-referral
+                    >
+                        Copy
+                    </button>
+                </div>
+
+                <span id="copyFeedback" style="font-size: 0.9em; color: green; display: none;">
+                    Copied!
+                </span>
+
+                <p>Share this code with new users. You will receive rewards when they register using it.</p>
+
+            {% elif dashboard.user.referral_eligible %}
+                <p>You are eligible to generate a referral code.</p>
+
+                <form method="post" action="{{ url_for('generate_referral_code_route') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="btn btn-primary">Generate Referral Code</button>
+                </form>
+
+            {% else %}
+                <p>
+                    Complete at least 3 successful trades or reach a reputation score of 4.0+
+                    to unlock referral invitations.
+                </p>
+            {% endif %}
+        </section>
+
         <div class="dashboard-grid">
             <section class="dashboard-section">
                 <h2>My listings ({{ dashboard.listings|length }})</h2>

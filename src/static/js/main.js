@@ -495,6 +495,42 @@ function attachUserDropdown() {
     });
 }
 
+function attachReferralCopyButton() {
+    const copyButton = document.querySelector('[data-copy-referral]');
+    const referralCodeText = document.getElementById('referralCodeText');
+    const feedback = document.getElementById('copyFeedback');
+
+    if (!copyButton || !referralCodeText || !feedback) {
+        return;
+    }
+
+    copyButton.addEventListener('click', async () => {
+        const code = referralCodeText.textContent.trim();
+
+        if (!code) {
+            return;
+        }
+
+        try {
+            await navigator.clipboard.writeText(code);
+
+            feedback.style.display = 'inline';
+
+            setTimeout(() => {
+                feedback.style.display = 'none';
+            }, 1500);
+        } catch (error) {
+            feedback.textContent = 'Copy failed';
+            feedback.style.display = 'inline';
+
+            setTimeout(() => {
+                feedback.textContent = 'Copied!';
+                feedback.style.display = 'none';
+            }, 1500);
+        }
+    });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     attachSellImagePicker();
     attachItemGallery();
@@ -503,4 +539,5 @@ document.addEventListener('DOMContentLoaded', () => {
     attachWalletModal();
     attachWalletVisibilityToggle();
     attachUserDropdown();
+    attachReferralCopyButton();
 });
