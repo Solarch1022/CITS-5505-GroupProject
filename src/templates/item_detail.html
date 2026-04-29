@@ -54,11 +54,21 @@
             <div class="pricing-section">
                 <h2>${{ '%.2f'|format(item.price) }}</h2>
                 <p class="panel-text">Listed on {{ item.created_at_display }}</p>
+                {% if item.quantity %}
+                    <p class="panel-text"><strong>{{ item.quantity }}</strong> unit{{ 's' if item.quantity != 1 else '' }} available in stock</p>
+                {% endif %}
 
-                {% if current_user.is_authenticated and current_user.id != item.seller.id and not item.is_sold %}
-                    <form method="post" action="{{ url_for('purchase_page', item_id=item.id) }}">
+                {% if current_user.is_authenticated and current_user.id != item.seller.id and not item.is_sold and item.quantity > 0 %}
+                    <form method="post" action="{{ url_for('purchase_page', item_id=item.id) }}" id="purchaseForm">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <button type="submit" class="btn btn-primary">Buy with wallet</button>
+                        <div class="form-group" style="margin-bottom: 1rem;">
+                            <label for="purchaseQuantity">Quantity to buy:</label>
+                            <input type="number" id="purchaseQuantity" name="quantity" min="1" max="{{ item.quantity }}" value="1" style="width: 80px;">
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button type="submit" class="btn btn-primary">Buy with wallet</button>
+                            <button type="button" id="addToCartBtn" class="btn btn-secondary" data-item-id="{{ item.id }}">Add to cart</button>
+                        </div>
                     </form>
                     {% if purchase_wallet %}
                         <p class="wallet-purchase-note {% if purchase_wallet.has_enough_funds %}wallet-purchase-note-ready{% else %}wallet-purchase-note-warning{% endif %}">
@@ -72,8 +82,37 @@
                             {% endif %}
                         </p>
                     {% endif %}
+                    <script>
+                        document.getElementById('addToCartBtn').addEventListener('click', async function(e) {
+                            e.preventDefault();
+                            const quantity = parseInt(document.getElementById('purchaseQuantity').value);
+                            const itemId = this.dataset.itemId;
+                            
+                            try {
+                                const response = await fetch('/api/cart/add', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ item_id: parseInt(itemId), quantity })
+                                });
+                                const data = await response.json();
+                                
+                                if (data.success) {
+                                    alert('Item added to cart!');
+                                } else {
+                                    alert('Error: ' + (data.error || 'Unknown error'));
+                                }
+                            } catch (error) {
+                                console.error('Error adding to cart:', error);
+                                alert('Error adding item to cart');
+                            }
+                        });
+                    </script>
                 {% elif current_user.is_authenticated and current_user.id == item.seller.id %}
                     <a href="{{ url_for('dashboard_page') }}" class="btn btn-secondary">Open dashboard</a>
+                {% elif item.is_sold %}
+                    <p class="panel-text"><strong>This item is sold out.</strong></p>
+                {% elif item.quantity <= 0 %}
+                    <p class="panel-text"><strong>This item is out of stock.</strong></p>
                 {% else %}
                     <a href="{{ url_for('login_page', next=url_for('item_detail_page', item_id=item.id)) }}" class="btn btn-secondary">Login to buy</a>
                 {% endif %}

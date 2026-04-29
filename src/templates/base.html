@@ -16,6 +16,7 @@
                 <li><a href="{{ url_for('browse_items') }}">Browse</a></li>
                 {% if current_user.is_authenticated %}
                     <li><a href="{{ url_for('sell_item_page') }}" class="btn-sell">Sell</a></li>
+                    <li><a href="{{ url_for('cart_page') }}" class="btn-cart" id="cartLink">🛒 Cart</a></li>
                     <li class="nav-user-dropdown">
                         <button class="nav-user-button" id="userMenuBtn">
                             <span class="user-icon">👤</span>

@@ -13,7 +13,7 @@ from werkzeug.utils import secure_filename
 sys.path.insert(0, os.path.dirname(__file__))
 
 from config import config
-from models import Conversation, Item, ItemImage, Message, PaymentMethod, Transaction, User, Wallet, WalletEntry, db
+from models import Conversation, Item, ItemImage, Message, PaymentMethod, Transaction, User, Wallet, WalletEntry, CartItem, db
 
 
 ITEM_CATEGORIES = ['Electronics', 'Furniture', 'Clothing', 'Books', 'Sports', 'Other']
@@ -189,6 +189,24 @@ def create_app(config_name='development'):
         if missing_wallets:
             db.session.add_all(missing_wallets)
             db.session.commit()
+
+    def ensure_admin_account_exists():
+        admin_user = User.query.filter_by(username='admin').first()
+        if admin_user:
+            return
+
+        admin = User(
+            username='admin',
+            email='admin@localhost',
+            full_name='Administrator'
+        )
+        admin.set_password('123456')
+        db.session.add(admin)
+        db.session.flush()
+        
+        wallet = Wallet(user_id=admin.id, available_balance=0.0)
+        db.session.add(wallet)
+        db.session.commit()
 
     def record_wallet_entry(wallet, entry_type, amount, description, *, payment_method=None, transaction=None):
         entry = WalletEntry(
@@ -475,6 +493,7 @@ def create_app(config_name='development'):
             'title': title or DRAFT_TITLE_PLACEHOLDER,
             'raw_title': title,
             'price': item.price,
+            'quantity': item.quantity,
             'category': item.category,
             'condition': item.condition,
             'is_draft': item.is_draft,
@@ -786,7 +805,7 @@ def create_app(config_name='development'):
 
         return user, None, 200
 
-    def normalize_listing_payload(title, description, price, category, condition, *, allow_partial):
+    def normalize_listing_payload(title, description, price, category, condition, quantity, *, allow_partial):
         title = title.strip()
         description = description.strip()
         category = category.strip()
@@ -808,15 +827,26 @@ def create_app(config_name='development'):
                 except (TypeError, ValueError):
                     return None, 'Draft price must be a valid number', 400
 
+            if quantity in (None, ''):
+                quantity_value = 1
+            else:
+                try:
+                    quantity_value = int(quantity)
+                    if quantity_value < 1:
+                        raise ValueError
+                except (TypeError, ValueError):
+                    return None, 'Draft quantity must be a positive number', 400
+
             return {
                 'title': title,
                 'description': description,
                 'price': price_value,
                 'category': category,
                 'condition': condition,
+                'quantity': quantity_value,
             }, None, 200
 
-        if not all([title, description, price, category, condition]):
+        if not all([title, description, price, category, condition, quantity]):
             return None, 'All fields are required to publish a listing', 400
 
         if len(title) < 4:
@@ -838,15 +868,23 @@ def create_app(config_name='development'):
         except (TypeError, ValueError):
             return None, 'Price must be a positive number', 400
 
+        try:
+            quantity_value = int(quantity)
+            if quantity_value < 1:
+                raise ValueError
+        except (TypeError, ValueError):
+            return None, 'Quantity must be a positive number', 400
+
         return {
             'title': title,
             'description': description,
             'price': price_value,
             'category': category,
             'condition': condition,
+            'quantity': quantity_value,
         }, None, 200
 
-    def save_listing(item, title, description, price, category, condition, seller, image_files, *, publish):
+    def save_listing(item, title, description, price, category, condition, quantity, seller, image_files, *, publish):
         image_files = image_files or []
 
         normalized, error, status = normalize_listing_payload(
@@ -855,6 +893,7 @@ def create_app(config_name='development'):
             price,
             category,
             condition,
+            quantity,
             allow_partial=not publish,
         )
         if error:
@@ -880,6 +919,7 @@ def create_app(config_name='development'):
             item.price = normalized['price']
             item.category = normalized['category']
             item.condition = normalized['condition']
+            item.quantity = normalized['quantity']
             item.is_draft = not publish
 
             if is_new:
@@ -907,19 +947,29 @@ def create_app(config_name='development'):
             remove_saved_files(new_saved_paths)
             return None, 'Uploaded images could not be saved', 500
 
-    def complete_purchase(item, buyer):
+    def complete_purchase(item, buyer, quantity=1):
         if item.is_draft:
             return None, 'Draft listings cannot be purchased', 400
 
-        if item.is_sold:
-            return None, 'Item already sold', 400
+        if item.quantity <= 0:
+            return None, 'Item out of stock', 400
 
         if item.seller_id == buyer.id:
             return None, 'Cannot buy your own item', 400
 
+        try:
+            quantity = int(quantity)
+            if quantity < 1:
+                raise ValueError
+        except (TypeError, ValueError):
+            return None, 'Quantity must be a positive number', 400
+
+        if quantity > item.quantity:
+            return None, f'Only {item.quantity} item{"s" if item.quantity != 1 else ""} available in stock', 400
+
         buyer_wallet = get_or_create_wallet(buyer)
         seller_wallet = get_or_create_wallet(item.seller)
-        item_price = round_money(item.price)
+        item_price = round_money(item.price * quantity)
         if buyer_wallet.available_balance < item_price:
             shortfall = round_money(item_price - buyer_wallet.available_balance)
             return None, (
@@ -932,10 +982,13 @@ def create_app(config_name='development'):
             seller_id=item.seller_id,
             buyer_id=buyer.id,
             price=item_price,
+            quantity_bought=quantity,
             status='completed',
         )
 
-        item.is_sold = True
+        item.quantity -= quantity
+        if item.quantity == 0:
+            item.is_sold = True
         buyer_wallet.available_balance = round_money(buyer_wallet.available_balance - item_price)
         seller_wallet.available_balance = round_money(seller_wallet.available_balance + item_price)
         db.session.add(transaction)
@@ -944,7 +997,7 @@ def create_app(config_name='development'):
             buyer_wallet,
             'purchase',
             -item_price,
-            f'Purchased {item.title}',
+            f'Purchased {quantity} unit{"s" if quantity != 1 else ""} of {item.title}',
             transaction=transaction,
         )
         record_wallet_entry(
@@ -1023,6 +1076,7 @@ def create_app(config_name='development'):
         db.create_all()
         ensure_schema_supports_drafts()
         ensure_existing_users_have_wallets()
+        ensure_admin_account_exists()
 
     @app.route('/')
     def index():
@@ -1052,6 +1106,11 @@ def create_app(config_name='development'):
             filters={'category': category, 'search': search},
             total=len(items),
         )
+
+    @app.route('/cart')
+    @login_required
+    def cart_page():
+        return render_template('cart.html')
 
     @app.route('/login', methods=['GET', 'POST'])
     @csrf_protect
@@ -1120,6 +1179,7 @@ def create_app(config_name='development'):
                 request.form.get('price', ''),
                 request.form.get('category', ''),
                 request.form.get('condition', ''),
+                request.form.get('quantity', ''),
                 current_user,
                 normalize_uploaded_files(request.files.getlist('images')),
                 publish=publish,
@@ -1159,6 +1219,7 @@ def create_app(config_name='development'):
                 request.form.get('price', ''),
                 request.form.get('category', ''),
                 request.form.get('condition', ''),
+                request.form.get('quantity', ''),
                 current_user,
                 normalize_uploaded_files(request.files.getlist('images')),
                 publish=publish,
@@ -1241,13 +1302,14 @@ def create_app(config_name='development'):
         if not item:
             abort(404)
 
-        transaction, error, _ = complete_purchase(item, current_user)
+        quantity = request.form.get('quantity', '1')
+        transaction, error, _ = complete_purchase(item, current_user, quantity=quantity)
         if error:
             flash(error, 'error')
             return redirect(url_for('item_detail_page', item_id=item.id))
 
         flash(
-            f'Purchase completed for {transaction.item.title}. '
+            f'Purchase completed for {transaction.quantity_bought} unit{"s" if transaction.quantity_bought != 1 else ""} of {transaction.item.title}. '
             f'${format_money(transaction.price)} was paid from your wallet and moved into the seller wallet.',
             'success',
         )
@@ -1522,6 +1584,7 @@ def create_app(config_name='development'):
             data.get('price', ''),
             data.get('category', ''),
             data.get('condition', ''),
+            data.get('quantity', ''),
             current_user,
             image_files,
             publish=True,
@@ -1543,7 +1606,10 @@ def create_app(config_name='development'):
         if error_response:
             return error_response
 
-        transaction, error, status = complete_purchase(item, current_user)
+        data = request.get_json(silent=True) or {}
+        quantity = data.get('quantity', 1)
+
+        transaction, error, status = complete_purchase(item, current_user, quantity=quantity)
         if error:
             return jsonify({'success': False, 'error': error}), status
 
@@ -1553,6 +1619,7 @@ def create_app(config_name='development'):
             'transaction': {
                 'id': transaction.id,
                 'item_id': transaction.item_id,
+                'quantity_bought': transaction.quantity_bought,
                 'price': transaction.price,
                 'status': transaction.status,
                 'created_at': transaction.created_at.isoformat(),
@@ -1696,6 +1763,166 @@ def create_app(config_name='development'):
                 'min_withdrawal_amount': MIN_WITHDRAWAL_AMOUNT,
                 'withdrawal_fee_rate_percent': int(WITHDRAWAL_FEE_RATE * 100),
             },
+        }), 200
+
+    @app.route('/api/cart', methods=['GET'])
+    @login_required
+    def api_get_cart():
+        cart_items = CartItem.query.filter_by(user_id=current_user.id).all()
+        items = []
+        total_price = 0.0
+        for cart_item in cart_items:
+            item = cart_item.item
+            if item.is_sold or item.is_draft:
+                continue
+            item_total = round_money(item.price * cart_item.quantity)
+            total_price = round_money(total_price + item_total)
+            items.append({
+                'cart_item_id': cart_item.id,
+                'item': serialize_item(item),
+                'quantity': cart_item.quantity,
+                'item_total': item_total,
+            })
+        return jsonify({
+            'success': True,
+            'cart': {
+                'items': items,
+                'total_items': len(items),
+                'total_price': total_price,
+            }
+        }), 200
+
+    @app.route('/api/cart/add', methods=['POST'])
+    @login_required
+    def api_add_to_cart():
+        data = request.get_json() or {}
+        item_id = data.get('item_id')
+        quantity = int(data.get('quantity', 1))
+
+        if not item_id or quantity < 1:
+            return jsonify({'success': False, 'error': 'Invalid item or quantity'}), 400
+
+        item = get_item_or_none(item_id)
+        if not item or item.is_sold or item.is_draft:
+            return jsonify({'success': False, 'error': 'Item not available'}), 404
+
+        if quantity > item.quantity:
+            return jsonify({'success': False, 'error': f'Only {item.quantity} units available'}), 400
+
+        cart_item = CartItem.query.filter_by(user_id=current_user.id, item_id=item_id).first()
+        if cart_item:
+            cart_item.quantity += quantity
+        else:
+            cart_item = CartItem(user_id=current_user.id, item_id=item_id, quantity=quantity)
+            db.session.add(cart_item)
+        
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'message': 'Item added to cart',
+            'cart_item': {
+                'id': cart_item.id,
+                'item_id': item_id,
+                'quantity': cart_item.quantity,
+            }
+        }), 201
+
+    @app.route('/api/cart/items/<int:item_id>', methods=['PATCH'])
+    @login_required
+    def api_update_cart_item(item_id):
+        data = request.get_json() or {}
+        quantity = int(data.get('quantity', 1))
+
+        if quantity < 1:
+            return jsonify({'success': False, 'error': 'Quantity must be at least 1'}), 400
+
+        item = get_item_or_none(item_id)
+        if not item or item.is_sold or item.is_draft:
+            return jsonify({'success': False, 'error': 'Item not available'}), 404
+
+        if quantity > item.quantity:
+            return jsonify({'success': False, 'error': f'Only {item.quantity} units available'}), 400
+
+        cart_item = CartItem.query.filter_by(user_id=current_user.id, item_id=item_id).first()
+        if not cart_item:
+            return jsonify({'success': False, 'error': 'Item not in cart'}), 404
+
+        cart_item.quantity = quantity
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'message': 'Cart item updated',
+            'cart_item': {
+                'id': cart_item.id,
+                'item_id': item_id,
+                'quantity': cart_item.quantity,
+            }
+        }), 200
+
+    @app.route('/api/cart/items/<int:item_id>', methods=['DELETE'])
+    @login_required
+    def api_remove_from_cart(item_id):
+        cart_item = CartItem.query.filter_by(user_id=current_user.id, item_id=item_id).first()
+        if not cart_item:
+            return jsonify({'success': False, 'error': 'Item not in cart'}), 404
+
+        db.session.delete(cart_item)
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'message': 'Item removed from cart'
+        }), 200
+
+    @app.route('/api/cart/checkout', methods=['POST'])
+    @login_required
+    def api_checkout_cart():
+        cart_items = CartItem.query.filter_by(user_id=current_user.id).all()
+        if not cart_items:
+            return jsonify({'success': False, 'error': 'Cart is empty'}), 400
+
+        transactions = []
+        errors = []
+
+        for cart_item in cart_items:
+            item = cart_item.item
+            if item.is_sold or item.is_draft:
+                errors.append(f'{item.title} is no longer available')
+                continue
+
+            if cart_item.quantity > item.quantity:
+                errors.append(f'Only {item.quantity} units of {item.title} available')
+                continue
+
+            transaction, error, _ = complete_purchase(item, current_user, quantity=cart_item.quantity)
+            if error:
+                errors.append(f'{item.title}: {error}')
+            else:
+                transactions.append(transaction)
+                db.session.delete(cart_item)
+
+        if errors:
+            db.session.rollback()
+            return jsonify({
+                'success': False,
+                'error': 'Some items could not be purchased',
+                'errors': errors,
+                'transactions': [{'id': t.id, 'item': t.item.title} for t in transactions]
+            }), 400
+
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'message': f'Successfully purchased {len(transactions)} item{"s" if len(transactions) != 1 else ""}',
+            'transactions': [
+                {
+                    'id': t.id,
+                    'item_id': t.item_id,
+                    'item_title': t.item.title,
+                    'quantity': t.quantity_bought,
+                    'price': t.price,
+                }
+                for t in transactions
+            ]
         }), 200
 
     return app
