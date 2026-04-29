@@ -54,10 +54,17 @@
             <div class="pricing-section">
                 <h2>${{ '%.2f'|format(item.price) }}</h2>
                 <p class="panel-text">Listed on {{ item.created_at_display }}</p>
+                {% if item.quantity %}
+                    <p class="panel-text"><strong>{{ item.quantity }}</strong> unit{{ 's' if item.quantity != 1 else '' }} available in stock</p>
+                {% endif %}
 
-                {% if current_user.is_authenticated and current_user.id != item.seller.id and not item.is_sold %}
-                    <form method="post" action="{{ url_for('purchase_page', item_id=item.id) }}">
+                {% if current_user.is_authenticated and current_user.id != item.seller.id and not item.is_sold and item.quantity > 0 %}
+                    <form method="post" action="{{ url_for('purchase_page', item_id=item.id) }}" id="purchaseForm">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <div class="form-group" style="margin-bottom: 1rem;">
+                            <label for="purchaseQuantity">Quantity to buy:</label>
+                            <input type="number" id="purchaseQuantity" name="quantity" min="1" max="{{ item.quantity }}" value="1" style="width: 80px;">
+                        </div>
                         <button type="submit" class="btn btn-primary">Buy with wallet</button>
                     </form>
                     {% if purchase_wallet %}
@@ -74,6 +81,10 @@
                     {% endif %}
                 {% elif current_user.is_authenticated and current_user.id == item.seller.id %}
                     <a href="{{ url_for('dashboard_page') }}" class="btn btn-secondary">Open dashboard</a>
+                {% elif item.is_sold %}
+                    <p class="panel-text"><strong>This item is sold out.</strong></p>
+                {% elif item.quantity <= 0 %}
+                    <p class="panel-text"><strong>This item is out of stock.</strong></p>
                 {% else %}
                     <a href="{{ url_for('login_page', next=url_for('item_detail_page', item_id=item.id)) }}" class="btn btn-secondary">Login to buy</a>
                 {% endif %}

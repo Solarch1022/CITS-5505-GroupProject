@@ -74,6 +74,7 @@ class Item(db.Model):
     price = db.Column(db.Float, nullable=False)
     category = db.Column(db.String(50), nullable=False, index=True)
     condition = db.Column(db.String(20), nullable=False)  # new, like_new, good, fair
+    quantity = db.Column(db.Integer, default=1, nullable=False)  # Available quantity
     seller_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
     is_draft = db.Column(db.Boolean, default=False, nullable=False, index=True)
     is_sold = db.Column(db.Boolean, default=False)
@@ -101,6 +102,7 @@ class Transaction(db.Model):
     item_id = db.Column(db.Integer, db.ForeignKey('items.id'), nullable=False, index=True)
     seller_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
     buyer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    quantity_bought = db.Column(db.Integer, default=1, nullable=False)  # Quantity purchased in this transaction
     price = db.Column(db.Float, nullable=False)
     status = db.Column(db.String(20), default='pending')  # pending, completed, cancelled
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)

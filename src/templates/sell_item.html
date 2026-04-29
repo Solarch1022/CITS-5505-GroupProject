@@ -70,6 +70,11 @@
                         {% endfor %}
                     </select>
                 </div>
+
+                <div class="form-group">
+                    <label for="itemQuantity">Quantity available</label>
+                    <input type="number" id="itemQuantity" name="quantity" min="1" value="{{ form_data.get('quantity', '1') }}">
+                </div>
             </div>
 
             {% if is_edit_mode and listing and listing.images %}

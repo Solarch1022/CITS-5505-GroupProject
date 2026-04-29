@@ -475,6 +475,7 @@ def create_app(config_name='development'):
             'title': title or DRAFT_TITLE_PLACEHOLDER,
             'raw_title': title,
             'price': item.price,
+            'quantity': item.quantity,
             'category': item.category,
             'condition': item.condition,
             'is_draft': item.is_draft,
@@ -786,7 +787,7 @@ def create_app(config_name='development'):
 
         return user, None, 200
 
-    def normalize_listing_payload(title, description, price, category, condition, *, allow_partial):
+    def normalize_listing_payload(title, description, price, category, condition, quantity, *, allow_partial):
         title = title.strip()
         description = description.strip()
         category = category.strip()
@@ -808,15 +809,26 @@ def create_app(config_name='development'):
                 except (TypeError, ValueError):
                     return None, 'Draft price must be a valid number', 400
 
+            if quantity in (None, ''):
+                quantity_value = 1
+            else:
+                try:
+                    quantity_value = int(quantity)
+                    if quantity_value < 1:
+                        raise ValueError
+                except (TypeError, ValueError):
+                    return None, 'Draft quantity must be a positive number', 400
+
             return {
                 'title': title,
                 'description': description,
                 'price': price_value,
                 'category': category,
                 'condition': condition,
+                'quantity': quantity_value,
             }, None, 200
 
-        if not all([title, description, price, category, condition]):
+        if not all([title, description, price, category, condition, quantity]):
             return None, 'All fields are required to publish a listing', 400
 
         if len(title) < 4:
@@ -838,15 +850,23 @@ def create_app(config_name='development'):
         except (TypeError, ValueError):
             return None, 'Price must be a positive number', 400
 
+        try:
+            quantity_value = int(quantity)
+            if quantity_value < 1:
+                raise ValueError
+        except (TypeError, ValueError):
+            return None, 'Quantity must be a positive number', 400
+
         return {
             'title': title,
             'description': description,
             'price': price_value,
             'category': category,
             'condition': condition,
+            'quantity': quantity_value,
         }, None, 200
 
-    def save_listing(item, title, description, price, category, condition, seller, image_files, *, publish):
+    def save_listing(item, title, description, price, category, condition, quantity, seller, image_files, *, publish):
         image_files = image_files or []
 
         normalized, error, status = normalize_listing_payload(
@@ -855,6 +875,7 @@ def create_app(config_name='development'):
             price,
             category,
             condition,
+            quantity,
             allow_partial=not publish,
         )
         if error:
@@ -880,6 +901,7 @@ def create_app(config_name='development'):
             item.price = normalized['price']
             item.category = normalized['category']
             item.condition = normalized['condition']
+            item.quantity = normalized['quantity']
             item.is_draft = not publish
 
             if is_new:
@@ -907,19 +929,29 @@ def create_app(config_name='development'):
             remove_saved_files(new_saved_paths)
             return None, 'Uploaded images could not be saved', 500
 
-    def complete_purchase(item, buyer):
+    def complete_purchase(item, buyer, quantity=1):
         if item.is_draft:
             return None, 'Draft listings cannot be purchased', 400
 
-        if item.is_sold:
-            return None, 'Item already sold', 400
+        if item.quantity <= 0:
+            return None, 'Item out of stock', 400
 
         if item.seller_id == buyer.id:
             return None, 'Cannot buy your own item', 400
 
+        try:
+            quantity = int(quantity)
+            if quantity < 1:
+                raise ValueError
+        except (TypeError, ValueError):
+            return None, 'Quantity must be a positive number', 400
+
+        if quantity > item.quantity:
+            return None, f'Only {item.quantity} item{"s" if item.quantity != 1 else ""} available in stock', 400
+
         buyer_wallet = get_or_create_wallet(buyer)
         seller_wallet = get_or_create_wallet(item.seller)
-        item_price = round_money(item.price)
+        item_price = round_money(item.price * quantity)
         if buyer_wallet.available_balance < item_price:
             shortfall = round_money(item_price - buyer_wallet.available_balance)
             return None, (
@@ -932,10 +964,13 @@ def create_app(config_name='development'):
             seller_id=item.seller_id,
             buyer_id=buyer.id,
             price=item_price,
+            quantity_bought=quantity,
             status='completed',
         )
 
-        item.is_sold = True
+        item.quantity -= quantity
+        if item.quantity == 0:
+            item.is_sold = True
         buyer_wallet.available_balance = round_money(buyer_wallet.available_balance - item_price)
         seller_wallet.available_balance = round_money(seller_wallet.available_balance + item_price)
         db.session.add(transaction)
@@ -944,7 +979,7 @@ def create_app(config_name='development'):
             buyer_wallet,
             'purchase',
             -item_price,
-            f'Purchased {item.title}',
+            f'Purchased {quantity} unit{"s" if quantity != 1 else ""} of {item.title}',
             transaction=transaction,
         )
         record_wallet_entry(
@@ -1120,6 +1155,7 @@ def create_app(config_name='development'):
                 request.form.get('price', ''),
                 request.form.get('category', ''),
                 request.form.get('condition', ''),
+                request.form.get('quantity', ''),
                 current_user,
                 normalize_uploaded_files(request.files.getlist('images')),
                 publish=publish,
@@ -1159,6 +1195,7 @@ def create_app(config_name='development'):
                 request.form.get('price', ''),
                 request.form.get('category', ''),
                 request.form.get('condition', ''),
+                request.form.get('quantity', ''),
                 current_user,
                 normalize_uploaded_files(request.files.getlist('images')),
                 publish=publish,
@@ -1241,13 +1278,14 @@ def create_app(config_name='development'):
         if not item:
             abort(404)
 
-        transaction, error, _ = complete_purchase(item, current_user)
+        quantity = request.form.get('quantity', '1')
+        transaction, error, _ = complete_purchase(item, current_user, quantity=quantity)
         if error:
             flash(error, 'error')
             return redirect(url_for('item_detail_page', item_id=item.id))
 
         flash(
-            f'Purchase completed for {transaction.item.title}. '
+            f'Purchase completed for {transaction.quantity_bought} unit{"s" if transaction.quantity_bought != 1 else ""} of {transaction.item.title}. '
             f'${format_money(transaction.price)} was paid from your wallet and moved into the seller wallet.',
             'success',
         )
@@ -1522,6 +1560,7 @@ def create_app(config_name='development'):
             data.get('price', ''),
             data.get('category', ''),
             data.get('condition', ''),
+            data.get('quantity', ''),
             current_user,
             image_files,
             publish=True,
@@ -1543,7 +1582,10 @@ def create_app(config_name='development'):
         if error_response:
             return error_response
 
-        transaction, error, status = complete_purchase(item, current_user)
+        data = request.get_json(silent=True) or {}
+        quantity = data.get('quantity', 1)
+
+        transaction, error, status = complete_purchase(item, current_user, quantity=quantity)
         if error:
             return jsonify({'success': False, 'error': error}), status
 
@@ -1553,6 +1595,7 @@ def create_app(config_name='development'):
             'transaction': {
                 'id': transaction.id,
                 'item_id': transaction.item_id,
+                'quantity_bought': transaction.quantity_bought,
                 'price': transaction.price,
                 'status': transaction.status,
                 'created_at': transaction.created_at.isoformat(),
