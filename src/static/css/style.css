@@ -84,6 +84,11 @@ body.modal-open {
     font-weight: bold;
 }
 
+.btn-cart {
+    background-color: #27ae60 !important;
+    font-weight: bold;
+}
+
 .nav-user {
     display: inline-flex;
     align-items: center;

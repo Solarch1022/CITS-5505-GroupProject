@@ -228,3 +228,25 @@ class Message(db.Model):
     def __repr__(self):
         return f'<Message {self.id} conversation={self.conversation_id}>'
 
+
+class CartItem(db.Model):
+    __tablename__ = 'cart_items'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    item_id = db.Column(db.Integer, db.ForeignKey('items.id'), nullable=False, index=True)
+    quantity = db.Column(db.Integer, default=1, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    item = db.relationship('Item', backref=db.backref('cart_items', lazy=True))
+    user = db.relationship('User', backref=db.backref('cart_items', lazy=True))
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'item_id', name='uq_cart_user_item'),
+        db.Index('idx_cart_user_created', 'user_id', 'created_at'),
+    )
+
+    def __repr__(self):
+        return f'<CartItem user={self.user_id} item={self.item_id} qty={self.quantity}>'
+

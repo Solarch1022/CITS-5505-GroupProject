@@ -13,7 +13,7 @@ from werkzeug.utils import secure_filename
 sys.path.insert(0, os.path.dirname(__file__))
 
 from config import config
-from models import Conversation, Item, ItemImage, Message, PaymentMethod, Transaction, User, Wallet, WalletEntry, db
+from models import Conversation, Item, ItemImage, Message, PaymentMethod, Transaction, User, Wallet, WalletEntry, CartItem, db
 
 
 ITEM_CATEGORIES = ['Electronics', 'Furniture', 'Clothing', 'Books', 'Sports', 'Other']
@@ -1107,6 +1107,11 @@ def create_app(config_name='development'):
             total=len(items),
         )
 
+    @app.route('/cart')
+    @login_required
+    def cart_page():
+        return render_template('cart.html')
+
     @app.route('/login', methods=['GET', 'POST'])
     @csrf_protect
     def login_page():
@@ -1758,6 +1763,166 @@ def create_app(config_name='development'):
                 'min_withdrawal_amount': MIN_WITHDRAWAL_AMOUNT,
                 'withdrawal_fee_rate_percent': int(WITHDRAWAL_FEE_RATE * 100),
             },
+        }), 200
+
+    @app.route('/api/cart', methods=['GET'])
+    @login_required
+    def api_get_cart():
+        cart_items = CartItem.query.filter_by(user_id=current_user.id).all()
+        items = []
+        total_price = 0.0
+        for cart_item in cart_items:
+            item = cart_item.item
+            if item.is_sold or item.is_draft:
+                continue
+            item_total = round_money(item.price * cart_item.quantity)
+            total_price = round_money(total_price + item_total)
+            items.append({
+                'cart_item_id': cart_item.id,
+                'item': serialize_item(item),
+                'quantity': cart_item.quantity,
+                'item_total': item_total,
+            })
+        return jsonify({
+            'success': True,
+            'cart': {
+                'items': items,
+                'total_items': len(items),
+                'total_price': total_price,
+            }
+        }), 200
+
+    @app.route('/api/cart/add', methods=['POST'])
+    @login_required
+    def api_add_to_cart():
+        data = request.get_json() or {}
+        item_id = data.get('item_id')
+        quantity = int(data.get('quantity', 1))
+
+        if not item_id or quantity < 1:
+            return jsonify({'success': False, 'error': 'Invalid item or quantity'}), 400
+
+        item = get_item_or_none(item_id)
+        if not item or item.is_sold or item.is_draft:
+            return jsonify({'success': False, 'error': 'Item not available'}), 404
+
+        if quantity > item.quantity:
+            return jsonify({'success': False, 'error': f'Only {item.quantity} units available'}), 400
+
+        cart_item = CartItem.query.filter_by(user_id=current_user.id, item_id=item_id).first()
+        if cart_item:
+            cart_item.quantity += quantity
+        else:
+            cart_item = CartItem(user_id=current_user.id, item_id=item_id, quantity=quantity)
+            db.session.add(cart_item)
+        
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'message': 'Item added to cart',
+            'cart_item': {
+                'id': cart_item.id,
+                'item_id': item_id,
+                'quantity': cart_item.quantity,
+            }
+        }), 201
+
+    @app.route('/api/cart/items/<int:item_id>', methods=['PATCH'])
+    @login_required
+    def api_update_cart_item(item_id):
+        data = request.get_json() or {}
+        quantity = int(data.get('quantity', 1))
+
+        if quantity < 1:
+            return jsonify({'success': False, 'error': 'Quantity must be at least 1'}), 400
+
+        item = get_item_or_none(item_id)
+        if not item or item.is_sold or item.is_draft:
+            return jsonify({'success': False, 'error': 'Item not available'}), 404
+
+        if quantity > item.quantity:
+            return jsonify({'success': False, 'error': f'Only {item.quantity} units available'}), 400
+
+        cart_item = CartItem.query.filter_by(user_id=current_user.id, item_id=item_id).first()
+        if not cart_item:
+            return jsonify({'success': False, 'error': 'Item not in cart'}), 404
+
+        cart_item.quantity = quantity
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'message': 'Cart item updated',
+            'cart_item': {
+                'id': cart_item.id,
+                'item_id': item_id,
+                'quantity': cart_item.quantity,
+            }
+        }), 200
+
+    @app.route('/api/cart/items/<int:item_id>', methods=['DELETE'])
+    @login_required
+    def api_remove_from_cart(item_id):
+        cart_item = CartItem.query.filter_by(user_id=current_user.id, item_id=item_id).first()
+        if not cart_item:
+            return jsonify({'success': False, 'error': 'Item not in cart'}), 404
+
+        db.session.delete(cart_item)
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'message': 'Item removed from cart'
+        }), 200
+
+    @app.route('/api/cart/checkout', methods=['POST'])
+    @login_required
+    def api_checkout_cart():
+        cart_items = CartItem.query.filter_by(user_id=current_user.id).all()
+        if not cart_items:
+            return jsonify({'success': False, 'error': 'Cart is empty'}), 400
+
+        transactions = []
+        errors = []
+
+        for cart_item in cart_items:
+            item = cart_item.item
+            if item.is_sold or item.is_draft:
+                errors.append(f'{item.title} is no longer available')
+                continue
+
+            if cart_item.quantity > item.quantity:
+                errors.append(f'Only {item.quantity} units of {item.title} available')
+                continue
+
+            transaction, error, _ = complete_purchase(item, current_user, quantity=cart_item.quantity)
+            if error:
+                errors.append(f'{item.title}: {error}')
+            else:
+                transactions.append(transaction)
+                db.session.delete(cart_item)
+
+        if errors:
+            db.session.rollback()
+            return jsonify({
+                'success': False,
+                'error': 'Some items could not be purchased',
+                'errors': errors,
+                'transactions': [{'id': t.id, 'item': t.item.title} for t in transactions]
+            }), 400
+
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'message': f'Successfully purchased {len(transactions)} item{"s" if len(transactions) != 1 else ""}',
+            'transactions': [
+                {
+                    'id': t.id,
+                    'item_id': t.item_id,
+                    'item_title': t.item.title,
+                    'quantity': t.quantity_bought,
+                    'price': t.price,
+                }
+                for t in transactions
+            ]
         }), 200
 
     return app

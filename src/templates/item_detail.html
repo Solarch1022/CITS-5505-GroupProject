@@ -65,7 +65,10 @@
                             <label for="purchaseQuantity">Quantity to buy:</label>
                             <input type="number" id="purchaseQuantity" name="quantity" min="1" max="{{ item.quantity }}" value="1" style="width: 80px;">
                         </div>
-                        <button type="submit" class="btn btn-primary">Buy with wallet</button>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button type="submit" class="btn btn-primary">Buy with wallet</button>
+                            <button type="button" id="addToCartBtn" class="btn btn-secondary" data-item-id="{{ item.id }}">Add to cart</button>
+                        </div>
                     </form>
                     {% if purchase_wallet %}
                         <p class="wallet-purchase-note {% if purchase_wallet.has_enough_funds %}wallet-purchase-note-ready{% else %}wallet-purchase-note-warning{% endif %}">
@@ -79,6 +82,31 @@
                             {% endif %}
                         </p>
                     {% endif %}
+                    <script>
+                        document.getElementById('addToCartBtn').addEventListener('click', async function(e) {
+                            e.preventDefault();
+                            const quantity = parseInt(document.getElementById('purchaseQuantity').value);
+                            const itemId = this.dataset.itemId;
+                            
+                            try {
+                                const response = await fetch('/api/cart/add', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ item_id: parseInt(itemId), quantity })
+                                });
+                                const data = await response.json();
+                                
+                                if (data.success) {
+                                    alert('Item added to cart!');
+                                } else {
+                                    alert('Error: ' + (data.error || 'Unknown error'));
+                                }
+                            } catch (error) {
+                                console.error('Error adding to cart:', error);
+                                alert('Error adding item to cart');
+                            }
+                        });
+                    </script>
                 {% elif current_user.is_authenticated and current_user.id == item.seller.id %}
                     <a href="{{ url_for('dashboard_page') }}" class="btn btn-secondary">Open dashboard</a>
                 {% elif item.is_sold %}
