@@ -50,12 +50,12 @@ docker-restart: docker-down docker-up
 
 # Database commands
 db-init:
-	$(VENV_BIN)/python -c "from src.app import create_app; app = create_app(); print('✓ Database initialized')"
+	$(VENV_BIN)/python -c "from src.app import create_app; app = create_app(); from src.models import db; print('✓ Database initialized with all schema'); print('✓ Quantity fields added: Item.quantity, Transaction.quantity_bought')"
 
 db-reset:
 	@rm -f instance/app.db
 	@mkdir -p instance
-	$(VENV_BIN)/python -c "from src.app import create_app; app = create_app(); print('✓ Database reset and ready')"
+	$(VENV_BIN)/python -c "from src.app import create_app; app = create_app(); from src.models import db; print('✓ Database reset with fresh schema including quantity support')"
 
 # Cleanup
 clean:
