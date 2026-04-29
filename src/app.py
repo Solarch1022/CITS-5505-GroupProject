@@ -190,6 +190,24 @@ def create_app(config_name='development'):
             db.session.add_all(missing_wallets)
             db.session.commit()
 
+    def ensure_admin_account_exists():
+        admin_user = User.query.filter_by(username='admin').first()
+        if admin_user:
+            return
+
+        admin = User(
+            username='admin',
+            email='admin@localhost',
+            full_name='Administrator'
+        )
+        admin.set_password('123456')
+        db.session.add(admin)
+        db.session.flush()
+        
+        wallet = Wallet(user_id=admin.id, available_balance=0.0)
+        db.session.add(wallet)
+        db.session.commit()
+
     def record_wallet_entry(wallet, entry_type, amount, description, *, payment_method=None, transaction=None):
         entry = WalletEntry(
             user_id=wallet.user_id,
@@ -1058,6 +1076,7 @@ def create_app(config_name='development'):
         db.create_all()
         ensure_schema_supports_drafts()
         ensure_existing_users_have_wallets()
+        ensure_admin_account_exists()
 
     @app.route('/')
     def index():
