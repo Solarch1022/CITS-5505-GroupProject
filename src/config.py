@@ -47,6 +47,14 @@ class Config:
     SESSION_TYPE = 'filesystem'
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = 'Lax'
+    
+    # Email configuration
+    MAIL_SERVER = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')
+    MAIL_PORT = int(os.environ.get('MAIL_PORT', 587))
+    MAIL_USE_TLS = os.environ.get('MAIL_USE_TLS', True)
+    MAIL_USERNAME = os.environ.get('MAIL_USERNAME')
+    MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD')
+    MAIL_DEFAULT_SENDER = ('UWA Student Marketplace', os.environ.get('MAIL_USERNAME', 'noreply@uwastudentmarketplace.local'))
 
 
 class DevelopmentConfig(Config):
