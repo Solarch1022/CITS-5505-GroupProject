@@ -865,6 +865,27 @@ def create_app(config_name='development'):
 
         return form_data
 
+    def validate_password_strength(password):
+        """Validate password strength requirements.
+        
+        Returns: (is_valid, error_message)
+        """
+        import re
+        
+        if len(password) < 8:
+            return False, 'Password must be at least 8 characters'
+        
+        if not re.search(r'[A-Z]', password):
+            return False, 'Password must contain at least one uppercase letter'
+        
+        if not re.search(r'[a-z]', password):
+            return False, 'Password must contain at least one lowercase letter'
+        
+        if not re.search(r'[!@#$%^&*()_+\-=\[\]{};:\'",.<>?/\\|`~]', password):
+            return False, 'Password must contain at least one special character (!@#$%^&* etc.)'
+        
+        return True, None
+
     def generate_verification_code():
         """Generate a random 6-digit verification code."""
         return str(secrets.randbelow(1000000)).zfill(6)
@@ -931,8 +952,9 @@ UWA Student Marketplace Team'''
         if len(username) < 3:
             return None, 'Username must be at least 3 characters', 400
 
-        if len(password) < 6:
-            return None, 'Password must be at least 6 characters', 400
+        is_valid, error_msg = validate_password_strength(password)
+        if not is_valid:
+            return None, error_msg, 400
 
         if not is_valid_uwa_student_email(email):
             return None, 'Only verified UWA student emails are allowed. Use your @student.uwa.edu.au address.', 400
