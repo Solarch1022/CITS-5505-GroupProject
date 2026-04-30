@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, session, url_for
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
-from flask_mail import Mail, Message
+from flask_mail import Mail, Message as MailMessage
 from sqlalchemy import inspect, or_, text
 from werkzeug.utils import secure_filename
 
@@ -877,7 +877,7 @@ def create_app(config_name='development'):
         db.session.commit()
 
         try:
-            msg = Message(
+            msg = MailMessage(
                 subject='Verify Your Email Address',
                 recipients=[user.email],
                 body=f'''Hello {user.full_name},

@@ -52,7 +52,7 @@ class MarketplaceAppTestCase(unittest.TestCase):
         }, csrf_token=csrf_token)
 
     def create_user(self, username, email, full_name='Test User'):
-        user = User(username=username, email=email, full_name=full_name)
+        user = User(username=username, email=email, full_name=full_name, email_verified=True)
         user.set_password('testpass123')
         db.session.add(user)
         db.session.commit()
