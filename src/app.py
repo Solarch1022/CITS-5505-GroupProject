@@ -1,3 +1,5 @@
+import base64
+import binascii
 from datetime import datetime
 from functools import wraps
 import os
@@ -22,6 +24,7 @@ UWA_STUDENT_DOMAIN = '@student.uwa.edu.au'
 MAX_MESSAGE_LENGTH = 600
 MAX_IMAGES_PER_ITEM = 6
 ALLOWED_IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.gif'}
+MAX_AVATAR_UPLOAD_BYTES = 3 * 1024 * 1024
 DRAFT_TITLE_PLACEHOLDER = 'Untitled draft'
 MAX_WALLET_ACTIVITY = 8
 MIN_TOP_UP_AMOUNT = 5.0
@@ -62,7 +65,9 @@ def create_app(config_name='development'):
     login_manager.login_view = 'login_page'
 
     upload_root = os.path.join(app.static_folder, 'uploads', 'items')
+    avatar_root = os.path.join(app.static_folder, 'uploads', 'avatars')
     os.makedirs(upload_root, exist_ok=True)
+    os.makedirs(avatar_root, exist_ok=True)
 
     @login_manager.user_loader
     def load_user(user_id):
@@ -146,6 +151,18 @@ def create_app(config_name='development'):
         if 'referrals' not in table_names:
             Referral.__table__.create(db.engine)
 
+    def ensure_schema_supports_avatars():
+        inspector = inspect(db.engine)
+        if 'users' not in inspector.get_table_names():
+            return
+
+        user_columns = {column['name'] for column in inspector.get_columns('users')}
+        if 'avatar_path' in user_columns:
+            return
+
+        with db.engine.begin() as connection:
+            connection.execute(text('ALTER TABLE users ADD COLUMN avatar_path VARCHAR(255)'))
+
     def ensure_schema_supports_inventory():
         inspector = inspect(db.engine)
         table_names = inspector.get_table_names()
@@ -189,6 +206,55 @@ def create_app(config_name='development'):
             ))
 
         return image_records, saved_paths
+
+    def persist_user_avatar(user, image_bytes, extension, safe_stem='avatar'):
+        if not image_bytes:
+            return None, 'Choose an image file before uploading.', 400
+
+        if len(image_bytes) > MAX_AVATAR_UPLOAD_BYTES:
+            return None, 'Avatar image must be 3 MB or smaller.', 400
+
+        safe_stem = secure_filename(safe_stem)[:48] or 'avatar'
+        generated_name = f'avatar-{secrets.token_hex(8)}-{safe_stem}.{extension}'
+        user_avatar_dir = os.path.join(avatar_root, str(user.id))
+        os.makedirs(user_avatar_dir, exist_ok=True)
+
+        absolute_path = os.path.join(user_avatar_dir, generated_name)
+        relative_path = '/'.join(['uploads', 'avatars', str(user.id), generated_name])
+        old_avatar_path = user.avatar_path
+
+        with open(absolute_path, 'wb') as avatar_output:
+            avatar_output.write(image_bytes)
+
+        user.avatar_path = relative_path
+        db.session.commit()
+
+        if old_avatar_path:
+            remove_saved_files([get_absolute_upload_path(old_avatar_path)])
+
+        return relative_path, None, 200
+
+    def save_user_avatar(user, avatar_file):
+        original_filename = avatar_file.filename or ''
+        if not is_allowed_image_filename(original_filename):
+            allowed_formats = ', '.join(sorted(ext.lstrip('.') for ext in ALLOWED_IMAGE_EXTENSIONS))
+            return None, f'Only {allowed_formats} image files are supported', 400
+
+        extension = os.path.splitext(original_filename)[1].lower().lstrip('.')
+        safe_stem = os.path.splitext(original_filename)[0]
+        return persist_user_avatar(user, avatar_file.read(), extension, safe_stem)
+
+    def save_cropped_user_avatar(user, avatar_data):
+        data_url_prefix = 'data:image/png;base64,'
+        if not avatar_data.startswith(data_url_prefix):
+            return None, 'Crop and confirm an avatar image before uploading.', 400
+
+        try:
+            image_bytes = base64.b64decode(avatar_data[len(data_url_prefix):], validate=True)
+        except (binascii.Error, ValueError):
+            return None, 'Avatar crop data could not be read.', 400
+
+        return persist_user_avatar(user, image_bytes, 'png', 'cropped-avatar')
 
     def round_money(value):
         return round(float(value or 0) + 1e-9, 2)
@@ -570,6 +636,7 @@ def create_app(config_name='development'):
             'username': user.username,
             'full_name': user.full_name,
             'bio': user.bio or '',
+            'avatar_url': url_for('static', filename=user.avatar_path) if user.avatar_path else None,
             'is_uwa_verified': is_valid_uwa_student_email(user.email),
             'reputation': get_user_reputation(user),
             'referral_code': user.referral_code,
@@ -622,6 +689,7 @@ def create_app(config_name='development'):
                 'id': message.sender.id,
                 'username': message.sender.username,
                 'full_name': message.sender.full_name,
+                'avatar_url': url_for('static', filename=message.sender.avatar_path) if message.sender.avatar_path else None,
             },
         }
 
@@ -1185,6 +1253,7 @@ def create_app(config_name='development'):
         db.create_all()
         ensure_schema_supports_drafts()
         ensure_schema_supports_referrals()
+        ensure_schema_supports_avatars()
         ensure_schema_supports_inventory()
         ensure_existing_users_have_wallets()
         ensure_admin_account_exists()
@@ -1577,6 +1646,33 @@ def create_app(config_name='development'):
     @login_required
     def profile_page():
         return render_template('profile.html', user=current_user)
+
+    @app.route('/profile/avatar', methods=['POST'])
+    @login_required
+    @csrf_protect
+    def profile_avatar_page():
+        avatar_data = request.form.get('avatar_data', '').strip()
+        if avatar_data:
+            _, error, _ = save_cropped_user_avatar(current_user, avatar_data)
+            if error:
+                flash(error, 'error')
+                return redirect(url_for('profile_page'))
+
+            flash('Profile avatar updated.', 'success')
+            return redirect(url_for('profile_page'))
+
+        avatar_file = request.files.get('avatar')
+        if not avatar_file or not avatar_file.filename:
+            flash('Choose an image file before uploading.', 'error')
+            return redirect(url_for('profile_page'))
+
+        _, error, _ = save_user_avatar(current_user, avatar_file)
+        if error:
+            flash(error, 'error')
+            return redirect(url_for('profile_page'))
+
+        flash('Profile avatar updated.', 'success')
+        return redirect(url_for('profile_page'))
 
     @app.route('/api/auth/register', methods=['POST'])
     @csrf_protect

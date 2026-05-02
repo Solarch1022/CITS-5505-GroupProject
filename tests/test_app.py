@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from src.app import create_app
 from models import Conversation, Item, Message, PaymentMethod, Transaction, User, Wallet, WalletEntry, db
@@ -401,6 +402,72 @@ class MarketplaceAppTestCase(unittest.TestCase):
         self.assertIn('Conversation with buyernews', selected_body)
         self.assertIn('buyernews', selected_body)
         self.assertNotIn('Buyer Legal Name', selected_body)
+
+    def test_profile_avatar_upload_surfaces_in_browse_and_inbox(self):
+        with self.app.app_context():
+            seller = self.create_user('avatarseller', 'avatarseller@student.uwa.edu.au')
+            buyer = self.create_user('avatarbuyer', 'avatarbuyer@student.uwa.edu.au')
+            item = Item(
+                title='Avatar Listing',
+                description='Listing used to verify seller avatars on browse cards.',
+                price=18,
+                category='Other',
+                condition='Good',
+                seller_id=seller.id,
+            )
+            db.session.add(item)
+            db.session.flush()
+
+            conversation = Conversation(item_id=item.id, seller_id=seller.id, buyer_id=buyer.id)
+            db.session.add(conversation)
+            db.session.flush()
+            db.session.add(Message(conversation_id=conversation.id, sender_id=seller.id, body='This item is still available.'))
+            db.session.commit()
+
+            conversation_id = conversation.id
+            buyer_username = buyer.username
+
+        self.login_user('avatarseller')
+        csrf_token = self.get_csrf_token()
+        profile_response = self.client.get('/profile')
+        profile_body = profile_response.get_data(as_text=True)
+
+        self.assertEqual(profile_response.status_code, 200)
+        self.assertIn('data-avatar-modal-open', profile_body)
+        self.assertIn('data-avatar-crop-form', profile_body)
+        self.assertIn('data-avatar-canvas', profile_body)
+
+        upload_response = self.client.post('/profile/avatar', data={
+            'csrf_token': csrf_token,
+            'avatar_data': 'data:image/png;base64,ZmFrZSBpbWFnZSBieXRlcw==',
+        })
+
+        self.assertEqual(upload_response.status_code, 302)
+
+        with self.app.app_context():
+            seller = User.query.filter_by(username='avatarseller').first()
+            self.assertIsNotNone(seller.avatar_path)
+            self.assertIn('uploads/avatars/', seller.avatar_path)
+            avatar_path = seller.avatar_path
+            avatar_file_path = Path('src/static').joinpath(*avatar_path.split('/'))
+            self.addCleanup(lambda: avatar_file_path.exists() and avatar_file_path.unlink())
+
+        browse_response = self.client.get('/browse')
+        browse_body = browse_response.get_data(as_text=True)
+
+        self.assertEqual(browse_response.status_code, 200)
+        self.assertIn('class="seller-avatar"', browse_body)
+        self.assertIn(avatar_path, browse_body)
+
+        self.login_user(buyer_username)
+        inbox_response = self.client.get(f'/dashboard?conversation={conversation_id}')
+        inbox_body = inbox_response.get_data(as_text=True)
+
+        self.assertEqual(inbox_response.status_code, 200)
+        self.assertIn('class="conversation-avatar"', inbox_body)
+        self.assertIn('class="chat-header-avatar"', inbox_body)
+        self.assertIn('class="chat-avatar"', inbox_body)
+        self.assertIn(avatar_path, inbox_body)
 
     def test_buyer_can_start_conversation_and_send_message(self):
         with self.app.app_context():

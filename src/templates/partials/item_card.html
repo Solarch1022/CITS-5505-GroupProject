@@ -13,7 +13,14 @@
                 <span class="item-category">{{ item.category }}</span>
                 <span class="item-condition">{{ item.condition }}</span>
             </div>
-            <p class="item-seller">Seller: {{ item.seller.full_name or item.seller.username }}</p>
+            <div class="item-seller">
+                {% if item.seller.avatar_url %}
+                    <img src="{{ item.seller.avatar_url }}" alt="{{ item.seller.username }} avatar" class="seller-avatar">
+                {% else %}
+                    <span class="seller-avatar seller-avatar-fallback">{{ item.seller.username[:1]|upper }}</span>
+                {% endif %}
+                <span>Seller: {{ item.seller.username }}</span>
+            </div>
             <div class="item-badges">
                 {% set user = item.seller %}
                 {% include 'partials/reputation_badges.html' %}

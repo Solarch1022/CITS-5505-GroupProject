@@ -478,6 +478,25 @@ main {
     font-size: 0.85rem;
     color: #7f8c8d;
     margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-width: 0;
+}
+
+.seller-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    object-fit: cover;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 28px;
+    background: #dbeafe;
+    color: #0f4c81;
+    font-size: 0.78rem;
+    font-weight: 700;
 }
 
 .item-footer {
@@ -1534,6 +1553,52 @@ main {
     margin-bottom: 1rem;
 }
 
+.chat-title-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+.chat-header-avatar,
+.chat-avatar,
+.conversation-avatar {
+    border-radius: 50%;
+    object-fit: cover;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    background: #dbeafe;
+    color: #0f4c81;
+    font-weight: 700;
+}
+
+.chat-header-avatar {
+    width: 40px;
+    height: 40px;
+    flex-basis: 40px;
+}
+
+.chat-avatar {
+    width: 32px;
+    height: 32px;
+    flex-basis: 32px;
+    font-size: 0.82rem;
+}
+
+.conversation-avatar {
+    width: 34px;
+    height: 34px;
+    flex-basis: 34px;
+    font-size: 0.82rem;
+}
+
+.chat-avatar-fallback,
+.conversation-avatar-fallback {
+    text-transform: uppercase;
+}
+
 .chat-status {
     background: #edf6ff;
     color: #0f4c81;
@@ -1557,6 +1622,20 @@ main {
     padding-right: 0.25rem;
 }
 
+.message-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.6rem;
+}
+
+.message-row.mine {
+    justify-content: flex-end;
+}
+
+.message-row.mine .chat-avatar {
+    order: 2;
+}
+
 .message-bubble {
     max-width: 78%;
     border-radius: 12px;
@@ -1566,7 +1645,6 @@ main {
 }
 
 .message-bubble.mine {
-    margin-left: auto;
     background: #0f4c81;
     color: white;
 }
@@ -1710,11 +1788,19 @@ main {
 }
 
 .conversation-copy {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    min-width: 0;
+}
+
+.conversation-copy > div {
     min-width: 0;
 }
 
 .conversation-copy strong,
 .conversation-copy p {
+    display: block;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2015,7 +2101,7 @@ main {
     }
 
     .message-bubble {
-        max-width: 100%;
+        max-width: calc(100% - 44px);
     }
 
     .wallet-mini-metrics {

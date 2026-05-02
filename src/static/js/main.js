@@ -201,12 +201,18 @@ function createMessageMarkup(message, currentUserId) {
     const mineClass = Number(message.sender.id) === currentUserId ? 'mine' : 'theirs';
     const author = escapeHtml(message.sender.username);
     const body = escapeHtml(message.body).replace(/\n/g, '<br>');
+    const avatarMarkup = message.sender.avatar_url
+        ? `<img src="${escapeHtml(message.sender.avatar_url)}" alt="${author} avatar" class="chat-avatar">`
+        : `<span class="chat-avatar chat-avatar-fallback">${escapeHtml((message.sender.username || '?').charAt(0).toUpperCase())}</span>`;
 
     return `
-        <div class="message-bubble ${mineClass}">
-            <span class="message-author">${author}</span>
-            <span class="message-body">${body}</span>
-            <span class="message-time">${escapeHtml(message.created_at_display)}</span>
+        <div class="message-row ${mineClass}">
+            ${avatarMarkup}
+            <div class="message-bubble ${mineClass}">
+                <span class="message-author">${author}</span>
+                <span class="message-body">${body}</span>
+                <span class="message-time">${escapeHtml(message.created_at_display)}</span>
+            </div>
         </div>
     `;
 }
@@ -535,12 +541,211 @@ function attachReferralCopyButton() {
     });
 }
 
+function attachAvatarCropper() {
+    const modal = document.querySelector('[data-avatar-modal]');
+    const openButton = document.querySelector('[data-avatar-modal-open]');
+    const closeButtons = Array.from(document.querySelectorAll('[data-avatar-modal-close]'));
+    const form = document.querySelector('[data-avatar-crop-form]');
+    const fileInput = document.querySelector('[data-avatar-file]');
+    const canvas = document.querySelector('[data-avatar-canvas]');
+    const emptyState = document.querySelector('[data-avatar-empty]');
+    const zoomInput = document.querySelector('[data-avatar-zoom]');
+    const avatarDataInput = document.querySelector('[data-avatar-data]');
+    const saveButton = document.querySelector('[data-avatar-save]');
+
+    if (!modal || !openButton || !form || !fileInput || !canvas || !zoomInput || !avatarDataInput || !saveButton) {
+        return;
+    }
+
+    const ctx = canvas.getContext('2d');
+    const cropSize = canvas.width;
+    let image = null;
+    let objectUrl = '';
+    let minScale = 1;
+    let scale = 1;
+    let offsetX = 0;
+    let offsetY = 0;
+    let isDragging = false;
+    let lastPointerX = 0;
+    let lastPointerY = 0;
+
+    const openModal = () => {
+        modal.classList.remove('hidden');
+        document.body.classList.add('modal-open');
+    };
+
+    const closeModal = () => {
+        modal.classList.add('hidden');
+        document.body.classList.remove('modal-open');
+    };
+
+    const clampOffset = () => {
+        if (!image) {
+            return;
+        }
+
+        const renderedWidth = image.width * scale;
+        const renderedHeight = image.height * scale;
+
+        if (renderedWidth <= cropSize) {
+            offsetX = (cropSize - renderedWidth) / 2;
+        } else {
+            offsetX = Math.min(0, Math.max(cropSize - renderedWidth, offsetX));
+        }
+
+        if (renderedHeight <= cropSize) {
+            offsetY = (cropSize - renderedHeight) / 2;
+        } else {
+            offsetY = Math.min(0, Math.max(cropSize - renderedHeight, offsetY));
+        }
+    };
+
+    const drawCropPreview = () => {
+        ctx.clearRect(0, 0, cropSize, cropSize);
+        ctx.fillStyle = '#f8fafc';
+        ctx.fillRect(0, 0, cropSize, cropSize);
+
+        if (!image) {
+            return;
+        }
+
+        clampOffset();
+        ctx.drawImage(image, offsetX, offsetY, image.width * scale, image.height * scale);
+
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(cropSize / 2, cropSize / 2, cropSize / 2 - 12, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+    };
+
+    const loadImageFile = (file) => {
+        if (!file) {
+            return;
+        }
+
+        if (objectUrl) {
+            URL.revokeObjectURL(objectUrl);
+        }
+
+        objectUrl = URL.createObjectURL(file);
+        image = new Image();
+        image.onload = () => {
+            minScale = Math.max(cropSize / image.width, cropSize / image.height);
+            scale = minScale;
+            offsetX = (cropSize - image.width * scale) / 2;
+            offsetY = (cropSize - image.height * scale) / 2;
+            zoomInput.value = '1';
+            zoomInput.disabled = false;
+            saveButton.disabled = false;
+            if (emptyState) {
+                emptyState.classList.add('hidden');
+            }
+            drawCropPreview();
+        };
+        image.src = objectUrl;
+    };
+
+    openButton.addEventListener('click', openModal);
+
+    closeButtons.forEach((button) => {
+        button.addEventListener('click', closeModal);
+    });
+
+    modal.addEventListener('click', (event) => {
+        if (event.target === modal) {
+            closeModal();
+        }
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && !modal.classList.contains('hidden')) {
+            closeModal();
+        }
+    });
+
+    fileInput.addEventListener('change', (event) => {
+        const [file] = Array.from(event.target.files || []);
+        loadImageFile(file);
+    });
+
+    zoomInput.addEventListener('input', () => {
+        if (!image) {
+            return;
+        }
+
+        const oldScale = scale;
+        const centerImageX = (cropSize / 2 - offsetX) / oldScale;
+        const centerImageY = (cropSize / 2 - offsetY) / oldScale;
+        scale = minScale * Number(zoomInput.value || 1);
+        offsetX = cropSize / 2 - centerImageX * scale;
+        offsetY = cropSize / 2 - centerImageY * scale;
+        drawCropPreview();
+    });
+
+    canvas.addEventListener('pointerdown', (event) => {
+        if (!image) {
+            return;
+        }
+
+        isDragging = true;
+        lastPointerX = event.clientX;
+        lastPointerY = event.clientY;
+        canvas.classList.add('dragging');
+        canvas.setPointerCapture(event.pointerId);
+    });
+
+    canvas.addEventListener('pointermove', (event) => {
+        if (!isDragging || !image) {
+            return;
+        }
+
+        offsetX += event.clientX - lastPointerX;
+        offsetY += event.clientY - lastPointerY;
+        lastPointerX = event.clientX;
+        lastPointerY = event.clientY;
+        drawCropPreview();
+    });
+
+    const stopDragging = (event) => {
+        if (!isDragging) {
+            return;
+        }
+
+        isDragging = false;
+        canvas.classList.remove('dragging');
+        if (event.pointerId !== undefined) {
+            canvas.releasePointerCapture(event.pointerId);
+        }
+    };
+
+    canvas.addEventListener('pointerup', stopDragging);
+    canvas.addEventListener('pointercancel', stopDragging);
+    canvas.addEventListener('pointerleave', stopDragging);
+
+    form.addEventListener('submit', (event) => {
+        if (!image) {
+            event.preventDefault();
+            return;
+        }
+
+        drawCropPreview();
+        avatarDataInput.value = canvas.toDataURL('image/png');
+    });
+}
+
 function createConversationCardMarkup(conversation, activeConversationId) {
     const latestMessage = conversation.latest_message || null;
     const latestMessageId = latestMessage?.id || '';
     const latestSenderId = latestMessage?.sender?.id || '';
     const activeClass = Number(conversation.id) === activeConversationId ? ' active' : '';
     const countLabel = `${conversation.message_count} msg`;
+    const counterpartInitial = (conversation.counterpart.username || '?').charAt(0).toUpperCase();
+    const avatarMarkup = conversation.counterpart.avatar_url
+        ? `<img src="${escapeHtml(conversation.counterpart.avatar_url)}" alt="${escapeHtml(conversation.counterpart.username)} avatar" class="conversation-avatar">`
+        : `<span class="conversation-avatar conversation-avatar-fallback">${escapeHtml(counterpartInitial)}</span>`;
 
     return `
         <a
@@ -553,8 +758,11 @@ function createConversationCardMarkup(conversation, activeConversationId) {
             data-message-count="${escapeHtml(conversation.message_count)}"
         >
             <div class="conversation-copy">
-                <strong>${escapeHtml(conversation.item.title)}</strong>
-                <p>${escapeHtml(conversation.counterpart.username)}</p>
+                ${avatarMarkup}
+                <div>
+                    <strong>${escapeHtml(conversation.item.title)}</strong>
+                    <p>${escapeHtml(conversation.counterpart.username)}</p>
+                </div>
             </div>
             <div class="conversation-meta">
                 <span data-conversation-count>${escapeHtml(countLabel)}</span>
@@ -575,12 +783,19 @@ function createInboxEmptyPanelMarkup() {
 function createConversationPanelMarkup(conversation, currentUserId) {
     const messages = conversation.messages || [];
     const statusLabel = conversation.item.is_sold ? 'Listing sold' : 'Listing active';
+    const counterpartInitial = (conversation.counterpart.username || '?').charAt(0).toUpperCase();
+    const avatarMarkup = conversation.counterpart.avatar_url
+        ? `<img src="${escapeHtml(conversation.counterpart.avatar_url)}" alt="${escapeHtml(conversation.counterpart.username)} avatar" class="chat-header-avatar">`
+        : `<span class="chat-header-avatar chat-avatar-fallback">${escapeHtml(counterpartInitial)}</span>`;
 
     return `
         <div class="chat-header">
-            <div>
-                <h3>${escapeHtml(conversation.item.title)}</h3>
-                <p class="panel-text">Conversation with ${escapeHtml(conversation.counterpart.username)}</p>
+            <div class="chat-title-row">
+                ${avatarMarkup}
+                <div>
+                    <h3>${escapeHtml(conversation.item.title)}</h3>
+                    <p class="panel-text">Conversation with ${escapeHtml(conversation.counterpart.username)}</p>
+                </div>
             </div>
             <div class="chat-status">${escapeHtml(statusLabel)}</div>
         </div>
@@ -916,6 +1131,7 @@ document.addEventListener('DOMContentLoaded', () => {
     attachItemGallery();
     attachChatWidgets();
     attachInboxNotifications();
+    attachAvatarCropper();
     attachUnlistModal();
     attachWalletModal();
     attachWalletVisibilityToggle();

@@ -212,8 +212,15 @@
                                 data-message-count="{{ conversation.message_count }}"
                             >
                                 <div class="conversation-copy">
-                                    <strong>{{ conversation.item.title }}</strong>
-                                    <p>{{ conversation.counterpart.username }}</p>
+                                    {% if conversation.counterpart.avatar_url %}
+                                        <img src="{{ conversation.counterpart.avatar_url }}" alt="{{ conversation.counterpart.username }} avatar" class="conversation-avatar">
+                                    {% else %}
+                                        <span class="conversation-avatar conversation-avatar-fallback">{{ conversation.counterpart.username[:1]|upper }}</span>
+                                    {% endif %}
+                                    <div>
+                                        <strong>{{ conversation.item.title }}</strong>
+                                        <p>{{ conversation.counterpart.username }}</p>
+                                    </div>
                                 </div>
                                 <div class="conversation-meta">
                                     <span data-conversation-count>{{ conversation.message_count }} msg</span>
@@ -229,18 +236,32 @@
                 <div class="chat-card" data-chat-root data-conversation-id="{{ active_conversation.id if active_conversation else '' }}" data-current-user-id="{{ current_user.id }}">
                     {% if active_conversation %}
                         <div class="chat-header">
-                            <div>
-                                <h3>{{ active_conversation.item.title }}</h3>
-                                <p class="panel-text">Conversation with {{ active_conversation.counterpart.username }}</p>
+                            <div class="chat-title-row">
+                                {% if active_conversation.counterpart.avatar_url %}
+                                    <img src="{{ active_conversation.counterpart.avatar_url }}" alt="{{ active_conversation.counterpart.username }} avatar" class="chat-header-avatar">
+                                {% else %}
+                                    <span class="chat-header-avatar chat-avatar-fallback">{{ active_conversation.counterpart.username[:1]|upper }}</span>
+                                {% endif %}
+                                <div>
+                                    <h3>{{ active_conversation.item.title }}</h3>
+                                    <p class="panel-text">Conversation with {{ active_conversation.counterpart.username }}</p>
+                                </div>
                             </div>
                             <div class="chat-status">{% if active_conversation.item.is_sold %}Listing sold{% else %}Listing active{% endif %}</div>
                         </div>
                         <div class="message-thread" data-chat-thread>
                             {% for message in active_conversation.messages %}
-                                <div class="message-bubble {% if message.sender.id == current_user.id %}mine{% else %}theirs{% endif %}">
-                                    <span class="message-author">{{ message.sender.username }}</span>
-                                    <span class="message-body">{{ message.body }}</span>
-                                    <span class="message-time">{{ message.created_at_display }}</span>
+                                <div class="message-row {% if message.sender.id == current_user.id %}mine{% else %}theirs{% endif %}">
+                                    {% if message.sender.avatar_url %}
+                                        <img src="{{ message.sender.avatar_url }}" alt="{{ message.sender.username }} avatar" class="chat-avatar">
+                                    {% else %}
+                                        <span class="chat-avatar chat-avatar-fallback">{{ message.sender.username[:1]|upper }}</span>
+                                    {% endif %}
+                                    <div class="message-bubble {% if message.sender.id == current_user.id %}mine{% else %}theirs{% endif %}">
+                                        <span class="message-author">{{ message.sender.username }}</span>
+                                        <span class="message-body">{{ message.body }}</span>
+                                        <span class="message-time">{{ message.created_at_display }}</span>
+                                    </div>
                                 </div>
                             {% endfor %}
                         </div>

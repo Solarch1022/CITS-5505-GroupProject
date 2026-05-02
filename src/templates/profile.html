@@ -5,8 +5,15 @@
 {% block content %}
     <section class="profile-container">
         <div class="profile-header">
-            <div class="profile-avatar">
-                <span class="avatar-icon">👤</span>
+            <div class="profile-avatar-stack">
+                <div class="profile-avatar">
+                    {% if user.avatar_path %}
+                        <img src="{{ url_for('static', filename=user.avatar_path) }}" alt="{{ user.username }} avatar">
+                    {% else %}
+                        <span class="avatar-icon">{{ user.username[:1]|upper }}</span>
+                    {% endif %}
+                </div>
+                <button type="button" class="avatar-change-button" data-avatar-modal-open>Change avatar</button>
             </div>
             <div class="profile-info">
                 <h1>{{ user.full_name or user.username }}</h1>
@@ -67,6 +74,43 @@
         </div>
     </section>
 
+    <div class="avatar-modal-backdrop hidden" id="avatarCropModal" data-avatar-modal>
+        <div class="avatar-modal" role="dialog" aria-modal="true" aria-labelledby="avatarCropTitle">
+            <div class="avatar-modal-header">
+                <div>
+                    <h2 id="avatarCropTitle">Update profile avatar</h2>
+                    <p>Select an image, then drag and zoom to choose the square crop.</p>
+                </div>
+                <button type="button" class="btn btn-ghost btn-sm" data-avatar-modal-close>Close</button>
+            </div>
+
+            <form method="post" action="{{ url_for('profile_avatar_page') }}" class="avatar-crop-form" data-avatar-crop-form>
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="avatar_data" data-avatar-data>
+
+                <div class="avatar-file-row">
+                    <label for="avatarUpload">Choose local image</label>
+                    <input id="avatarUpload" name="avatar" type="file" accept=".png,.jpg,.jpeg,.webp,.gif,image/png,image/jpeg,image/webp,image/gif" data-avatar-file>
+                </div>
+
+                <div class="avatar-crop-workspace">
+                    <canvas width="280" height="280" class="avatar-crop-canvas" data-avatar-canvas></canvas>
+                    <div class="avatar-crop-empty" data-avatar-empty>Select an image to preview the crop.</div>
+                </div>
+
+                <label class="avatar-zoom-control">
+                    <span>Zoom</span>
+                    <input type="range" min="1" max="3" step="0.01" value="1" data-avatar-zoom disabled>
+                </label>
+
+                <div class="avatar-modal-actions">
+                    <button type="button" class="btn btn-ghost" data-avatar-modal-close>Cancel</button>
+                    <button type="submit" class="btn btn-primary" data-avatar-save disabled>Save avatar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <style scoped>
         .profile-container {
             max-width: 800px;
@@ -85,6 +129,13 @@
             border: 1px solid rgba(231, 76, 60, 0.1);
         }
 
+        .profile-avatar-stack {
+            display: grid;
+            justify-items: center;
+            gap: 0.7rem;
+            flex-shrink: 0;
+        }
+
         .profile-avatar {
             display: flex;
             align-items: center;
@@ -93,11 +144,35 @@
             height: 120px;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             border-radius: 50%;
-            flex-shrink: 0;
+            overflow: hidden;
+        }
+
+        .profile-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
         }
 
         .avatar-icon {
+            color: white;
             font-size: 3rem;
+            font-weight: 700;
+        }
+
+        .avatar-change-button {
+            border: 1px solid #cbd5e1;
+            background: white;
+            color: #2c3e50;
+            border-radius: 999px;
+            padding: 0.38rem 0.75rem;
+            font-size: 0.82rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .avatar-change-button:hover {
+            background: #f8fafc;
         }
 
         .profile-info h1 {
@@ -208,6 +283,129 @@
             font-size: 0.85rem;
             color: #7f8c8d;
             text-align: center;
+        }
+
+        .avatar-modal-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 1100;
+            background: rgba(15, 23, 42, 0.58);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+
+        .avatar-modal {
+            width: min(560px, 100%);
+            background: white;
+            border-radius: 10px;
+            padding: 1.5rem;
+            box-shadow: 0 20px 45px rgba(15, 23, 42, 0.24);
+        }
+
+        .avatar-modal-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 1rem;
+            align-items: flex-start;
+            margin-bottom: 1.25rem;
+        }
+
+        .avatar-modal-header h2 {
+            margin: 0 0 0.35rem;
+            color: #2c3e50;
+            font-size: 1.25rem;
+        }
+
+        .avatar-modal-header p {
+            margin: 0;
+            color: #64748b;
+        }
+
+        .avatar-crop-form {
+            display: grid;
+            gap: 1rem;
+        }
+
+        .avatar-file-row {
+            display: grid;
+            gap: 0.45rem;
+        }
+
+        .avatar-file-row label,
+        .avatar-zoom-control span {
+            color: #2c3e50;
+            font-weight: 600;
+        }
+
+        .avatar-crop-workspace {
+            position: relative;
+            width: 280px;
+            height: 280px;
+            justify-self: center;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid #d7e4f0;
+            background: #f8fafc;
+        }
+
+        .avatar-crop-canvas {
+            width: 280px;
+            height: 280px;
+            display: block;
+            cursor: grab;
+            touch-action: none;
+        }
+
+        .avatar-crop-canvas.dragging {
+            cursor: grabbing;
+        }
+
+        .avatar-crop-empty {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            text-align: center;
+            color: #64748b;
+            background: #f8fafc;
+        }
+
+        .avatar-zoom-control {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr);
+            gap: 0.75rem;
+            align-items: center;
+        }
+
+        .avatar-modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.75rem;
+        }
+
+        @media (max-width: 640px) {
+            .profile-header {
+                flex-direction: column;
+                align-items: center;
+                text-align: center;
+            }
+
+            .avatar-modal-header,
+            .avatar-modal-actions {
+                flex-direction: column;
+            }
+
+            .avatar-modal-actions .btn {
+                width: 100%;
+            }
+
+            .avatar-zoom-control {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 {% endblock %}
