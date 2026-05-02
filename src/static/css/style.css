@@ -806,6 +806,60 @@ main {
     margin-bottom: 0.5rem;
 }
 
+.seller-contact-section {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+}
+
+.seller-contact-section h2 {
+    font-size: 1.15rem;
+    margin-bottom: 0.35rem;
+    color: #2c3e50;
+}
+
+.seller-contact-form {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(150px, 220px) minmax(240px, 1fr) auto;
+    gap: 1rem;
+    align-items: end;
+}
+
+.seller-contact-copy label {
+    display: block;
+    color: #5f6b7a;
+    font-weight: 600;
+}
+
+.seller-contact-form textarea {
+    width: 100%;
+    min-height: 48px;
+    padding: 0.75rem;
+    border: 1px solid #bdc3c7;
+    border-radius: 4px;
+    resize: vertical;
+    font: inherit;
+}
+
+.seller-contact-form textarea:focus {
+    outline: none;
+    border-color: #e74c3c;
+    box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.1);
+}
+
+.seller-contact-form .btn,
+.seller-contact-section > .btn {
+    white-space: nowrap;
+}
+
 .date-posted {
     font-size: 0.85rem;
     color: #7f8c8d;
@@ -1198,6 +1252,21 @@ main {
 
     .item-image-photo {
         height: 300px;
+    }
+
+    .seller-contact-section {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .seller-contact-form {
+        grid-template-columns: 1fr;
+    }
+
+    .seller-contact-form .btn,
+    .seller-contact-section > .btn {
+        width: 100%;
+        text-align: center;
     }
 
     .form-row {

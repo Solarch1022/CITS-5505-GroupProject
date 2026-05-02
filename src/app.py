@@ -145,6 +145,21 @@ def create_app(config_name='development'):
 
         if 'referrals' not in table_names:
             Referral.__table__.create(db.engine)
+
+    def ensure_schema_supports_inventory():
+        inspector = inspect(db.engine)
+        table_names = inspector.get_table_names()
+
+        with db.engine.begin() as connection:
+            if 'items' in table_names:
+                item_columns = {column['name'] for column in inspector.get_columns('items')}
+                if 'quantity' not in item_columns:
+                    connection.execute(text('ALTER TABLE items ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1'))
+
+            if 'transactions' in table_names:
+                transaction_columns = {column['name'] for column in inspector.get_columns('transactions')}
+                if 'quantity_bought' not in transaction_columns:
+                    connection.execute(text('ALTER TABLE transactions ADD COLUMN quantity_bought INTEGER NOT NULL DEFAULT 1'))
     
 
     def save_item_images(item, image_files):
@@ -933,7 +948,7 @@ def create_app(config_name='development'):
                 'quantity': quantity_value,
             }, None, 200
 
-        if not all([title, description, price, category, condition, quantity]):
+        if not all([title, description, price, category, condition]):
             return None, 'All fields are required to publish a listing', 400
 
         if len(title) < 4:
@@ -955,12 +970,15 @@ def create_app(config_name='development'):
         except (TypeError, ValueError):
             return None, 'Price must be a positive number', 400
 
-        try:
-            quantity_value = int(quantity)
-            if quantity_value < 1:
-                raise ValueError
-        except (TypeError, ValueError):
-            return None, 'Quantity must be a positive number', 400
+        if quantity in (None, ''):
+            quantity_value = 1
+        else:
+            try:
+                quantity_value = int(quantity)
+                if quantity_value < 1:
+                    raise ValueError
+            except (TypeError, ValueError):
+                return None, 'Quantity must be a positive number', 400
 
         return {
             'title': title,
@@ -1163,6 +1181,7 @@ def create_app(config_name='development'):
         db.create_all()
         ensure_schema_supports_drafts()
         ensure_schema_supports_referrals()
+        ensure_schema_supports_inventory()
         ensure_existing_users_have_wallets()
         ensure_admin_account_exists()
 
@@ -1419,13 +1438,15 @@ def create_app(config_name='development'):
             return redirect(url_for('edit_listing_page', item_id=item.id))
 
         purchase_wallet = None
+        contact_conversation = None
         if current_user.is_authenticated and current_user.id != item.seller_id:
             purchase_wallet = build_purchase_wallet_context(current_user, item.price)
+            contact_conversation = Conversation.query.filter_by(item_id=item.id, buyer_id=current_user.id).first()
 
         return render_template(
             'item_detail.html',
             item=serialize_item(item),
-            chat=resolve_item_chat_context(item),
+            contact_conversation_id=contact_conversation.id if contact_conversation else None,
             purchase_wallet=purchase_wallet,
         )
 
@@ -1444,10 +1465,10 @@ def create_app(config_name='development'):
         )
         if error:
             flash(error, 'error')
-            return redirect(url_for('item_detail_page', item_id=item.id) + '#chat')
+            return redirect(url_for('item_detail_page', item_id=item.id) + '#contact-seller')
 
         flash('Conversation ready.', 'success')
-        return redirect(url_for('item_detail_page', item_id=item.id, conversation=conversation.id) + '#chat')
+        return redirect(url_for('dashboard_page', conversation=conversation.id) + '#inbox')
 
     @app.route('/conversations/<int:conversation_id>/reply', methods=['POST'])
     @login_required
@@ -1468,8 +1489,6 @@ def create_app(config_name='development'):
         if is_safe_redirect_target(next_url):
             return redirect(next_url)
 
-        if conversation.item.seller_id == current_user.id:
-            return redirect(url_for('item_detail_page', item_id=conversation.item.id, conversation=conversation.id) + '#chat')
         return redirect(url_for('dashboard_page', conversation=conversation.id) + '#inbox')
 
     @app.route('/wallet/payment-methods', methods=['POST'])
