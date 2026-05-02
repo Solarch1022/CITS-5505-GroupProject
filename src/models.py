@@ -19,6 +19,9 @@ class User(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     referral_code = db.Column(db.String(20), unique=True, index=True)
+    email_verified = db.Column(db.Boolean, default=False, nullable=False)
+    email_verification_code = db.Column(db.String(10))
+    email_verification_code_expires_at = db.Column(db.DateTime)
 
     items = db.relationship('Item', backref='seller', lazy=True, foreign_keys='Item.seller_id')
     seller_transactions = db.relationship('Transaction', backref='seller', lazy=True, foreign_keys='Transaction.seller_id')

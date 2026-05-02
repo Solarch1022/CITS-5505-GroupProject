@@ -27,7 +27,20 @@
 
                 <div class="form-group">
                     <label for="registerPassword">Password</label>
-                    <input type="password" id="registerPassword" name="password" minlength="6" required>
+                    <input 
+                        type="password" 
+                        id="registerPassword" 
+                        name="password" 
+                        required
+                        placeholder="Min 8 chars with uppercase, lowercase, and special char"
+                    >
+                    <small class="form-helper-text">
+                        Password must contain:<br>
+                        <span id="uppercase-check">• At least one uppercase letter (A-Z)</span><br>
+                        <span id="lowercase-check">• At least one lowercase letter (a-z)</span><br>
+                        <span id="special-check">• At least one special character (!@#$%^&* etc.)</span><br>
+                        <span id="length-check">• At least 8 characters</span>
+                    </small>
                 </div>
 
                 <div class="form-group">
@@ -50,4 +63,50 @@
             </p>
         </div>
     </section>
+
+    <style>
+        .check-pass { color: #666; }
+        .check-pass.valid { color: green; }
+        .check-pass.invalid { color: #ccc; }
+    </style>
+
+    <script>
+        const passwordInput = document.getElementById('registerPassword');
+        const uppercaseCheck = document.getElementById('uppercase-check');
+        const lowercaseCheck = document.getElementById('lowercase-check');
+        const specialCheck = document.getElementById('special-check');
+        const lengthCheck = document.getElementById('length-check');
+
+        function validatePasswordRequirements() {
+            const password = passwordInput.value;
+
+            // Check uppercase
+            const hasUppercase = /[A-Z]/.test(password);
+            uppercaseCheck.classList.toggle('valid', hasUppercase);
+            uppercaseCheck.classList.toggle('invalid', !hasUppercase);
+            uppercaseCheck.classList.add('check-pass');
+
+            // Check lowercase
+            const hasLowercase = /[a-z]/.test(password);
+            lowercaseCheck.classList.toggle('valid', hasLowercase);
+            lowercaseCheck.classList.toggle('invalid', !hasLowercase);
+            lowercaseCheck.classList.add('check-pass');
+
+            // Check special character
+            const hasSpecial = /[!@#$%^&*()_+\-=\[\]{};:'",.&lt;>?/\\|`~]/.test(password);
+            specialCheck.classList.toggle('valid', hasSpecial);
+            specialCheck.classList.toggle('invalid', !hasSpecial);
+            specialCheck.classList.add('check-pass');
+
+            // Check length
+            const hasLength = password.length >= 8;
+            lengthCheck.classList.toggle('valid', hasLength);
+            lengthCheck.classList.toggle('invalid', !hasLength);
+            lengthCheck.classList.add('check-pass');
+        }
+
+        passwordInput.addEventListener('input', validatePasswordRequirements);
+        // Initial check
+        validatePasswordRequirements();
+    </script>
 {% endblock %}

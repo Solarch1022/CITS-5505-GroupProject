@@ -1,6 +1,6 @@
 import base64
 import binascii
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 import os
 import secrets
@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, session, url_for
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
+from flask_mail import Mail, Message as MailMessage
 from sqlalchemy import inspect, or_, text
 from werkzeug.utils import secure_filename
 
@@ -59,6 +60,7 @@ def create_app(config_name='development'):
     app.config.from_object(config[config_name])
 
     db.init_app(app)
+    mail = Mail(app)
 
     login_manager = LoginManager()
     login_manager.init_app(app)
@@ -286,6 +288,20 @@ def create_app(config_name='development'):
 
         if missing_wallets:
             db.session.add_all(missing_wallets)
+            db.session.commit()
+
+    def ensure_existing_users_have_email_verified():
+        """Set email_verified=True for existing users if not already set."""
+        users_without_verification = User.query.filter(
+            (User.email_verified == None) | (User.email_verified == False)
+        ).all()
+
+        for user in users_without_verification:
+            if user.email_verification_code is None:
+                # Only set to verified if they don't have a pending verification code
+                user.email_verified = True
+
+        if users_without_verification:
             db.session.commit()
 
     def ensure_admin_account_exists():
@@ -936,6 +952,82 @@ def create_app(config_name='development'):
 
         return form_data
 
+    def validate_password_strength(password):
+        """Validate password strength requirements.
+
+        Returns: (is_valid, error_message)
+        """
+        import re
+
+        if len(password) < 8:
+            return False, 'Password must be at least 8 characters'
+
+        if not re.search(r'[A-Z]', password):
+            return False, 'Password must contain at least one uppercase letter'
+
+        if not re.search(r'[a-z]', password):
+            return False, 'Password must contain at least one lowercase letter'
+
+        if not re.search(r'[!@#$%^&*()_+\-=\[\]{};:\'",.<>?/\\|`~]', password):
+            return False, 'Password must contain at least one special character (!@#$%^&* etc.)'
+
+        return True, None
+
+    def generate_verification_code():
+        """Generate a random 6-digit verification code."""
+        return str(secrets.randbelow(1000000)).zfill(6)
+
+    def send_verification_email(user):
+        """Generate a verification code and send it to user's email."""
+        code = generate_verification_code()
+        user.email_verification_code = code
+        user.email_verification_code_expires_at = datetime.utcnow() + timedelta(minutes=15)
+        db.session.commit()
+
+        try:
+            msg = MailMessage(
+                subject='Verify Your Email Address',
+                recipients=[user.email],
+                body=f'''Hello {user.full_name},
+
+Thank you for registering with UWA Student Marketplace!
+
+Please verify your email address by entering this code:
+
+{code}
+
+This code will expire in 15 minutes.
+
+If you did not create this account, please ignore this email.
+
+Best regards,
+UWA Student Marketplace Team'''
+            )
+            mail.send(msg)
+            return True, None
+        except Exception as e:
+            return False, str(e)
+
+    def verify_user_email(user, code):
+        """Verify user email with the provided code."""
+        if not user.email_verification_code:
+            return False, 'No verification code found'
+
+        if user.email_verified:
+            return False, 'Email already verified'
+
+        if datetime.utcnow() > user.email_verification_code_expires_at:
+            return False, 'Verification code has expired'
+
+        if user.email_verification_code != code.strip():
+            return False, 'Invalid verification code'
+
+        user.email_verified = True
+        user.email_verification_code = None
+        user.email_verification_code_expires_at = None
+        db.session.commit()
+        return True, None
+
     def create_user_account(username, email, password, full_name):
         username = username.strip()
         email = email.strip().lower()
@@ -947,8 +1039,9 @@ def create_app(config_name='development'):
         if len(username) < 3:
             return None, 'Username must be at least 3 characters', 400
 
-        if len(password) < 6:
-            return None, 'Password must be at least 6 characters', 400
+        is_valid, error_msg = validate_password_strength(password)
+        if not is_valid:
+            return None, error_msg, 400
 
         if not is_valid_uwa_student_email(email):
             return None, 'Only verified UWA student emails are allowed. Use your @student.uwa.edu.au address.', 400
@@ -959,11 +1052,17 @@ def create_app(config_name='development'):
         if User.query.filter_by(email=email).first():
             return None, 'Email already exists', 400
 
-        user = User(username=username, email=email, full_name=full_name)
+        user = User(username=username, email=email, full_name=full_name, email_verified=False)
         user.set_password(password)
         db.session.add(user)
         db.session.flush()
-        db.session.add(Wallet(user_id=user.id, available_balance=0.0))
+
+        # Send verification email
+        success, error = send_verification_email(user)
+        if not success:
+            db.session.rollback()
+            return None, f'Failed to send verification email: {error}', 500
+
         db.session.commit()
         return user, None, 201
 
@@ -976,6 +1075,9 @@ def create_app(config_name='development'):
         user = User.query.filter_by(username=username).first()
         if not user or not user.check_password(password):
             return None, 'Invalid username or password', 401
+
+        if not user.email_verified:
+            return None, 'Please verify your email before logging in. Check your inbox for the verification code.', 403
 
         return user, None, 200
 
@@ -1256,6 +1358,7 @@ def create_app(config_name='development'):
         ensure_schema_supports_avatars()
         ensure_schema_supports_inventory()
         ensure_existing_users_have_wallets()
+        ensure_existing_users_have_email_verified()
         ensure_admin_account_exists()
 
     @app.route('/')
@@ -1336,10 +1439,42 @@ def create_app(config_name='development'):
 
             apply_referral_reward(user, request.form.get('referral_code', ''))
 
-            flash('Registration successful. Please login with your new account.', 'success')
-            return redirect(url_for('login_page', username=user.username))
+            flash('Registration successful. Please check your email to verify your account.', 'success')
+            return redirect(url_for('verify_email_page', user_id=user.id))
 
         return render_template('register.html', form_data={})
+
+    @app.route('/verify-email/<int:user_id>', methods=['GET', 'POST'])
+    @csrf_protect
+    def verify_email_page(user_id):
+        user = db.session.get(User, user_id)
+        if not user:
+            flash('User not found.', 'error')
+            return redirect(url_for('register_page'))
+
+        if user.email_verified:
+            flash('Your email is already verified. Please login.', 'info')
+            return redirect(url_for('login_page'))
+
+        if request.method == 'POST':
+            code = request.form.get('code', '').strip()
+            if not code:
+                flash('Please enter the verification code.', 'error')
+                return render_template('verify_email.html', user_id=user_id, email=user.email)
+
+            success, error = verify_user_email(user, code)
+            if not success:
+                flash(error, 'error')
+                return render_template('verify_email.html', user_id=user_id, email=user.email), 400
+
+            # Create wallet for verified user
+            get_or_create_wallet(user)
+            db.session.commit()
+
+            flash('Email verified successfully! You can now login.', 'success')
+            return redirect(url_for('login_page', username=user.username))
+
+        return render_template('verify_email.html', user_id=user_id, email=user.email)
 
     @app.route('/logout', methods=['POST'])
     @csrf_protect
@@ -1692,10 +1827,73 @@ def create_app(config_name='development'):
 
         return jsonify({
             'success': True,
-            'message': 'Registration successful. Your UWA student account is now verified.',
+            'message': 'Registration successful. Please check your email to verify your account.',
             'user': serialize_user(user, include_email=True),
+            'email_verification_required': True,
+            'verify_email_url': url_for('verify_email_page', user_id=user.id, _external=True),
             'csrf_token': ensure_csrf_token(),
         }), 201
+
+    @app.route('/api/auth/verify-email', methods=['POST'])
+    @csrf_protect
+    def api_auth_verify_email():
+        data = request.get_json(silent=True)
+        if not data:
+            return jsonify({'success': False, 'error': 'Invalid JSON'}), 400
+
+        user_id = data.get('user_id')
+        code = data.get('code', '').strip()
+
+        if not user_id or not code:
+            return jsonify({'success': False, 'error': 'User ID and code are required'}), 400
+
+        user = db.session.get(User, user_id)
+        if not user:
+            return jsonify({'success': False, 'error': 'User not found'}), 404
+
+        if user.email_verified:
+            return jsonify({'success': False, 'error': 'Email already verified'}), 400
+
+        success, error = verify_user_email(user, code)
+        if not success:
+            return jsonify({'success': False, 'error': error}), 400
+
+        # Create wallet for verified user
+        get_or_create_wallet(user)
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'message': 'Email verified successfully!',
+            'user': serialize_user(user, include_email=True),
+        }), 200
+
+    @app.route('/api/auth/resend-verification-code', methods=['POST'])
+    @csrf_protect
+    def api_resend_verification_code():
+        data = request.get_json(silent=True)
+        if not data:
+            return jsonify({'success': False, 'error': 'Invalid JSON'}), 400
+
+        user_id = data.get('user_id')
+        if not user_id:
+            return jsonify({'success': False, 'error': 'User ID is required'}), 400
+
+        user = db.session.get(User, user_id)
+        if not user:
+            return jsonify({'success': False, 'error': 'User not found'}), 404
+
+        if user.email_verified:
+            return jsonify({'success': False, 'error': 'Email already verified'}), 400
+
+        success, error = send_verification_email(user)
+        if not success:
+            return jsonify({'success': False, 'error': f'Failed to send verification email: {error}'}), 500
+
+        return jsonify({
+            'success': True,
+            'message': 'Verification code sent successfully. Check your email.',
+        }), 200
 
     @app.route('/api/auth/login', methods=['POST'])
     @csrf_protect

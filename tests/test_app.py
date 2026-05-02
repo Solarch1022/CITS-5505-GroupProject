@@ -36,7 +36,7 @@ class MarketplaceAppTestCase(unittest.TestCase):
             data['csrf_token'] = csrf_token
         return self.client.post(url, data=data, follow_redirects=follow_redirects)
 
-    def register_user(self, username, email, password='testpass123', full_name='Test User'):
+    def register_user(self, username, email, password='TestPass@123', full_name='Test User'):
         csrf_token = self.get_csrf_token()
         return self.post_json('/api/auth/register', {
             'username': username,
@@ -45,7 +45,7 @@ class MarketplaceAppTestCase(unittest.TestCase):
             'full_name': full_name,
         }, csrf_token=csrf_token)
 
-    def login_user(self, username, password='testpass123'):
+    def login_user(self, username, password='TestPass@123'):
         csrf_token = self.get_csrf_token()
         return self.post_json('/api/auth/login', {
             'username': username,
@@ -53,8 +53,8 @@ class MarketplaceAppTestCase(unittest.TestCase):
         }, csrf_token=csrf_token)
 
     def create_user(self, username, email, full_name='Test User'):
-        user = User(username=username, email=email, full_name=full_name)
-        user.set_password('testpass123')
+        user = User(username=username, email=email, full_name=full_name, email_verified=True)
+        user.set_password('TestPass@123')
         db.session.add(user)
         db.session.commit()
         return user
