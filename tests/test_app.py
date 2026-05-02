@@ -360,8 +360,8 @@ class MarketplaceAppTestCase(unittest.TestCase):
 
     def test_dashboard_inbox_opens_conversation_only_after_selection(self):
         with self.app.app_context():
-            seller = self.create_user('sellernews', 'sellernews@student.uwa.edu.au')
-            buyer = self.create_user('buyernews', 'buyernews@student.uwa.edu.au')
+            seller = self.create_user('sellernews', 'sellernews@student.uwa.edu.au', full_name='Seller Legal Name')
+            buyer = self.create_user('buyernews', 'buyernews@student.uwa.edu.au', full_name='Buyer Legal Name')
             item = Item(
                 title='Desk Organizer',
                 description='Small organizer for campus stationery.',
@@ -398,6 +398,9 @@ class MarketplaceAppTestCase(unittest.TestCase):
         self.assertEqual(selected_response.status_code, 200)
         self.assertIn('Reply to this conversation...', selected_body)
         self.assertIn('Is it still available?', selected_body)
+        self.assertIn('Conversation with buyernews', selected_body)
+        self.assertIn('buyernews', selected_body)
+        self.assertNotIn('Buyer Legal Name', selected_body)
 
     def test_buyer_can_start_conversation_and_send_message(self):
         with self.app.app_context():

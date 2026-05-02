@@ -1752,6 +1752,11 @@ main {
     background: #edf6ff;
 }
 
+.conversation-item.active.has-new-message {
+    border-color: #dc2626;
+    background: #fff5f5;
+}
+
 .inbox-empty-panel {
     min-height: 320px;
     border-radius: 12px;

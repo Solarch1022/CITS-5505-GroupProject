@@ -213,7 +213,7 @@
                             >
                                 <div class="conversation-copy">
                                     <strong>{{ conversation.item.title }}</strong>
-                                    <p>{{ conversation.counterpart.full_name or conversation.counterpart.username }}</p>
+                                    <p>{{ conversation.counterpart.username }}</p>
                                 </div>
                                 <div class="conversation-meta">
                                     <span data-conversation-count>{{ conversation.message_count }} msg</span>
@@ -231,14 +231,14 @@
                         <div class="chat-header">
                             <div>
                                 <h3>{{ active_conversation.item.title }}</h3>
-                                <p class="panel-text">Conversation with {{ active_conversation.counterpart.full_name or active_conversation.counterpart.username }}</p>
+                                <p class="panel-text">Conversation with {{ active_conversation.counterpart.username }}</p>
                             </div>
                             <div class="chat-status">{% if active_conversation.item.is_sold %}Listing sold{% else %}Listing active{% endif %}</div>
                         </div>
                         <div class="message-thread" data-chat-thread>
                             {% for message in active_conversation.messages %}
                                 <div class="message-bubble {% if message.sender.id == current_user.id %}mine{% else %}theirs{% endif %}">
-                                    <span class="message-author">{{ message.sender.full_name or message.sender.username }}</span>
+                                    <span class="message-author">{{ message.sender.username }}</span>
                                     <span class="message-body">{{ message.body }}</span>
                                     <span class="message-time">{{ message.created_at_display }}</span>
                                 </div>
