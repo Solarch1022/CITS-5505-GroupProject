@@ -1,0 +1,80 @@
+{% extends 'base.html' %}
+
+{% block title %}UWA SecondHand - Verify Email{% endblock %}
+
+{% block content %}
+    <section class="auth-container">
+        <div class="auth-card auth-card-wide">
+            <h1>Verify Your Email</h1>
+            <p class="panel-text auth-helper">We've sent a verification code to <strong>{{ email }}</strong>. Please enter it below to complete your registration.</p>
+            <form method="post" action="{{ url_for('verify_email_page', user_id=user_id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+                <div class="form-group">
+                    <label for="verificationCode">Verification Code</label>
+                    <input 
+                        type="text" 
+                        id="verificationCode" 
+                        name="code" 
+                        placeholder="Enter the 6-digit code"
+                        inputmode="numeric"
+                        pattern="[0-9]{6}"
+                        maxlength="6"
+                        required
+                    >
+                    <small class="form-helper-text">Check your email (and spam folder) for the verification code. It will expire in 15 minutes.</small>
+                </div>
+
+                <button type="submit" class="btn btn-primary">Verify Email</button>
+            </form>
+
+            <div class="auth-actions">
+                <p class="auth-link">
+                    Didn't receive the code?
+                    <a 
+                        href="#" 
+                        id="resendCodeLink"
+                        onclick="resendVerificationCode(event, {{ user_id }});"
+                    >Resend code</a>
+                </p>
+                <p class="auth-link">
+                    <a href="{{ url_for('register_page') }}">Try registering with a different email</a>
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <script>
+        async function resendVerificationCode(event, userId) {
+            event.preventDefault();
+            const link = document.getElementById('resendCodeLink');
+            const originalText = link.textContent;
+            link.textContent = 'Sending...';
+            link.style.pointerEvents = 'none';
+
+            try {
+                const response = await fetch('/api/auth/resend-verification-code', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('input[name="csrf_token"]').value,
+                    },
+                    body: JSON.stringify({ user_id: userId }),
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    alert('Verification code sent! Check your email.');
+                } else {
+                    alert('Error: ' + (data.error || 'Failed to resend code'));
+                }
+            } catch (error) {
+                alert('Error sending verification code: ' + error);
+            } finally {
+                link.textContent = originalText;
+                link.style.pointerEvents = 'auto';
+            }
+        }
+    </script>
+{% endblock %}
+
