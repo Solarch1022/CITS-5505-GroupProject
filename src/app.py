@@ -1633,7 +1633,7 @@ def create_app(config_name='development'):
     def generate_referral_code_route():
         if not is_referral_eligible(current_user):
             flash(
-                'You need at least 3 completed trades or a reputation score of 4.0+ to generate a referral code.',
+                'Complete one successful purchase or sale to generate a referral code.',
                 'error'
             )
             return redirect(url_for('dashboard_page'))
