@@ -612,13 +612,6 @@ function attachAvatarCropper() {
         clampOffset();
         ctx.drawImage(image, offsetX, offsetY, image.width * scale, image.height * scale);
 
-        ctx.save();
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(cropSize / 2, cropSize / 2, cropSize / 2 - 12, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.restore();
     };
 
     const loadImageFile = (file) => {
