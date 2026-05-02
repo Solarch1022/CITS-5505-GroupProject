@@ -728,7 +728,7 @@ def create_app(config_name='development'):
             ],
         }
 
-    def select_active_conversation(conversations, requested_id):
+    def select_active_conversation(conversations, requested_id, *, default_to_first=True):
         if not conversations:
             return None
 
@@ -737,7 +737,7 @@ def create_app(config_name='development'):
                 if conversation.id == requested_id:
                     return conversation
 
-        return conversations[0]
+        return conversations[0] if default_to_first else None
 
     def get_item_or_none(item_id):
         return db.session.get(Item, item_id)
@@ -832,7 +832,11 @@ def create_app(config_name='development'):
             .order_by(Conversation.updated_at.desc())
             .all()
         )
-        active = select_active_conversation(conversations, request.args.get('conversation', type=int))
+        active = select_active_conversation(
+            conversations,
+            request.args.get('conversation', type=int),
+            default_to_first=False,
+        )
         return {
             'dashboard': dashboard,
             'conversation_summaries': [

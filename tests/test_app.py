@@ -358,6 +358,47 @@ class MarketplaceAppTestCase(unittest.TestCase):
         self.assertIn('data-wallet-toggle', body)
         self.assertIn('data-wallet-sensitive', body)
 
+    def test_dashboard_inbox_opens_conversation_only_after_selection(self):
+        with self.app.app_context():
+            seller = self.create_user('sellernews', 'sellernews@student.uwa.edu.au')
+            buyer = self.create_user('buyernews', 'buyernews@student.uwa.edu.au')
+            item = Item(
+                title='Desk Organizer',
+                description='Small organizer for campus stationery.',
+                price=10,
+                category='Other',
+                condition='Good',
+                seller_id=seller.id,
+            )
+            db.session.add(item)
+            db.session.flush()
+
+            conversation = Conversation(item_id=item.id, seller_id=seller.id, buyer_id=buyer.id)
+            db.session.add(conversation)
+            db.session.flush()
+            db.session.add(Message(conversation_id=conversation.id, sender_id=buyer.id, body='Is it still available?'))
+            db.session.commit()
+            conversation_id = conversation.id
+            seller_username = seller.username
+
+        self.login_user(seller_username)
+        default_response = self.client.get('/dashboard')
+        default_body = default_response.get_data(as_text=True)
+
+        self.assertEqual(default_response.status_code, 200)
+        self.assertIn('Latest news', default_body)
+        self.assertIn('data-conversation-card', default_body)
+        self.assertIn('data-latest-message-id', default_body)
+        self.assertNotIn('Reply to this conversation...', default_body)
+        self.assertNotIn('message-bubble', default_body)
+
+        selected_response = self.client.get(f'/dashboard?conversation={conversation_id}')
+        selected_body = selected_response.get_data(as_text=True)
+
+        self.assertEqual(selected_response.status_code, 200)
+        self.assertIn('Reply to this conversation...', selected_body)
+        self.assertIn('Is it still available?', selected_body)
+
     def test_buyer_can_start_conversation_and_send_message(self):
         with self.app.app_context():
             seller = self.create_user('seller', 'seller@student.uwa.edu.au', full_name='Seller User')

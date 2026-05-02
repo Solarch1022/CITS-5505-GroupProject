@@ -531,10 +531,157 @@ function attachReferralCopyButton() {
     });
 }
 
+function createConversationCardMarkup(conversation, activeConversationId) {
+    const latestMessage = conversation.latest_message || null;
+    const latestMessageId = latestMessage?.id || '';
+    const latestSenderId = latestMessage?.sender?.id || '';
+    const activeClass = Number(conversation.id) === activeConversationId ? ' active' : '';
+    const countLabel = `${conversation.message_count} msg`;
+
+    return `
+        <a
+            href="/dashboard?conversation=${encodeURIComponent(conversation.id)}#inbox"
+            class="conversation-item${activeClass}"
+            data-conversation-card
+            data-conversation-id="${escapeHtml(conversation.id)}"
+            data-latest-message-id="${escapeHtml(latestMessageId)}"
+            data-latest-sender-id="${escapeHtml(latestSenderId)}"
+            data-message-count="${escapeHtml(conversation.message_count)}"
+        >
+            <div class="conversation-copy">
+                <strong>${escapeHtml(conversation.item.title)}</strong>
+                <p>${escapeHtml(conversation.counterpart.full_name || conversation.counterpart.username)}</p>
+            </div>
+            <div class="conversation-meta">
+                <span data-conversation-count>${escapeHtml(countLabel)}</span>
+                <span class="conversation-alert hidden" data-conversation-alert>New</span>
+            </div>
+        </a>
+    `;
+}
+
+function attachInboxNotifications() {
+    const root = document.querySelector('[data-inbox-root]');
+    if (!root) {
+        return;
+    }
+
+    const list = root.querySelector('[data-conversation-list]');
+    if (!list) {
+        return;
+    }
+
+    const currentUserId = readCurrentUserId(root);
+    const activeConversationId = Number(root.dataset.activeConversationId || 0);
+
+    const readMarkerKey = (conversationId) => `uwa-secondhand:inbox:${currentUserId}:${conversationId}:latest-read`;
+
+    const getReadMarker = (conversationId) => {
+        try {
+            return Number(window.localStorage.getItem(readMarkerKey(conversationId)) || 0);
+        } catch (error) {
+            return 0;
+        }
+    };
+
+    const setReadMarker = (conversationId, latestMessageId) => {
+        if (!conversationId || !latestMessageId) {
+            return;
+        }
+
+        try {
+            window.localStorage.setItem(readMarkerKey(conversationId), String(latestMessageId));
+        } catch (error) {
+            // Ignore storage failures; the inbox still works without persisted read state.
+        }
+    };
+
+    const markActiveConversationRead = () => {
+        if (!activeConversationId) {
+            return;
+        }
+
+        const activeCard = list.querySelector(`[data-conversation-card][data-conversation-id="${activeConversationId}"]`);
+        const latestMessageId = Number(activeCard?.dataset.latestMessageId || 0);
+        setReadMarker(activeConversationId, latestMessageId);
+    };
+
+    const updateUnreadBadges = () => {
+        list.querySelectorAll('[data-conversation-card]').forEach((card) => {
+            const conversationId = Number(card.dataset.conversationId || 0);
+            const latestMessageId = Number(card.dataset.latestMessageId || 0);
+            const latestSenderId = Number(card.dataset.latestSenderId || 0);
+            const readMarker = getReadMarker(conversationId);
+            const isActive = activeConversationId && conversationId === activeConversationId;
+            const hasUnread = Boolean(
+                latestMessageId
+                && latestSenderId
+                && latestSenderId !== currentUserId
+                && latestMessageId > readMarker
+                && !isActive
+            );
+            const alert = card.querySelector('[data-conversation-alert]');
+
+            card.classList.toggle('has-new-message', hasUnread);
+            if (alert) {
+                alert.classList.toggle('hidden', !hasUnread);
+            }
+        });
+    };
+
+    const renderConversationList = (conversations) => {
+        if (!conversations.length) {
+            list.innerHTML = '<div class="empty-state compact">No conversations yet. Message a seller from any listing.</div>';
+            return;
+        }
+
+        list.innerHTML = conversations
+            .map((conversation) => createConversationCardMarkup(conversation, activeConversationId))
+            .join('');
+
+        markActiveConversationRead();
+        updateUnreadBadges();
+    };
+
+    const refreshConversations = async () => {
+        try {
+            const response = await fetch('/api/conversations', {
+                credentials: 'same-origin',
+                headers: { Accept: 'application/json' },
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                renderConversationList(data.conversations || []);
+            }
+        } catch (error) {
+            // Keep the current server-rendered list if a refresh fails.
+        }
+    };
+
+    list.addEventListener('click', (event) => {
+        const card = event.target.closest('[data-conversation-card]');
+        if (!card) {
+            return;
+        }
+
+        setReadMarker(Number(card.dataset.conversationId || 0), Number(card.dataset.latestMessageId || 0));
+    });
+
+    markActiveConversationRead();
+    updateUnreadBadges();
+
+    const poller = window.setInterval(refreshConversations, 5000);
+    window.addEventListener('beforeunload', () => {
+        window.clearInterval(poller);
+    }, { once: true });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     attachSellImagePicker();
     attachItemGallery();
     attachChatWidgets();
+    attachInboxNotifications();
     attachUnlistModal();
     attachWalletModal();
     attachWalletVisibilityToggle();
