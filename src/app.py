@@ -179,7 +179,20 @@ def create_app(config_name='development'):
                 transaction_columns = {column['name'] for column in inspector.get_columns('transactions')}
                 if 'quantity_bought' not in transaction_columns:
                     connection.execute(text('ALTER TABLE transactions ADD COLUMN quantity_bought INTEGER NOT NULL DEFAULT 1'))
-    
+
+    def ensure_schema_supports_email_verification():
+        inspector = inspect(db.engine)
+        if 'users' not in inspector.get_table_names():
+            return
+
+        user_columns = {column['name'] for column in inspector.get_columns('users')}
+        with db.engine.begin() as connection:
+            if 'email_verified' not in user_columns:
+                connection.execute(text('ALTER TABLE users ADD COLUMN email_verified BOOLEAN NOT NULL DEFAULT 1'))
+            if 'email_verification_code' not in user_columns:
+                connection.execute(text('ALTER TABLE users ADD COLUMN email_verification_code VARCHAR(10)'))
+            if 'email_verification_code_expires_at' not in user_columns:
+                connection.execute(text('ALTER TABLE users ADD COLUMN email_verification_code_expires_at DATETIME'))
 
     def save_item_images(item, image_files):
         image_records = []
@@ -312,7 +325,8 @@ def create_app(config_name='development'):
         admin = User(
             username='admin',
             email='admin@localhost',
-            full_name='Administrator'
+            full_name='Administrator',
+            email_verified=True,
         )
         admin.set_password('123456')
         db.session.add(admin)
@@ -1357,6 +1371,7 @@ UWA Student Marketplace Team'''
         ensure_schema_supports_referrals()
         ensure_schema_supports_avatars()
         ensure_schema_supports_inventory()
+        ensure_schema_supports_email_verification()
         ensure_existing_users_have_wallets()
         ensure_existing_users_have_email_verified()
         ensure_admin_account_exists()
