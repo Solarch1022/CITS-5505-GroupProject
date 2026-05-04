@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from src.app import create_app
 from models import Conversation, Item, Message, PaymentMethod, Transaction, User, Wallet, WalletEntry, db
@@ -358,6 +359,116 @@ class MarketplaceAppTestCase(unittest.TestCase):
         self.assertIn('data-wallet-toggle', body)
         self.assertIn('data-wallet-sensitive', body)
 
+    def test_dashboard_inbox_opens_conversation_only_after_selection(self):
+        with self.app.app_context():
+            seller = self.create_user('sellernews', 'sellernews@student.uwa.edu.au', full_name='Seller Legal Name')
+            buyer = self.create_user('buyernews', 'buyernews@student.uwa.edu.au', full_name='Buyer Legal Name')
+            item = Item(
+                title='Desk Organizer',
+                description='Small organizer for campus stationery.',
+                price=10,
+                category='Other',
+                condition='Good',
+                seller_id=seller.id,
+            )
+            db.session.add(item)
+            db.session.flush()
+
+            conversation = Conversation(item_id=item.id, seller_id=seller.id, buyer_id=buyer.id)
+            db.session.add(conversation)
+            db.session.flush()
+            db.session.add(Message(conversation_id=conversation.id, sender_id=buyer.id, body='Is it still available?'))
+            db.session.commit()
+            conversation_id = conversation.id
+            seller_username = seller.username
+
+        self.login_user(seller_username)
+        default_response = self.client.get('/dashboard')
+        default_body = default_response.get_data(as_text=True)
+
+        self.assertEqual(default_response.status_code, 200)
+        self.assertIn('Latest news', default_body)
+        self.assertIn('data-conversation-card', default_body)
+        self.assertIn('data-latest-message-id', default_body)
+        self.assertNotIn('Reply to this conversation...', default_body)
+        self.assertNotIn('message-bubble', default_body)
+
+        selected_response = self.client.get(f'/dashboard?conversation={conversation_id}')
+        selected_body = selected_response.get_data(as_text=True)
+
+        self.assertEqual(selected_response.status_code, 200)
+        self.assertIn('Reply to this conversation...', selected_body)
+        self.assertIn('Is it still available?', selected_body)
+        self.assertIn('Conversation with buyernews', selected_body)
+        self.assertIn('buyernews', selected_body)
+        self.assertNotIn('Buyer Legal Name', selected_body)
+
+    def test_profile_avatar_upload_surfaces_in_browse_and_inbox(self):
+        with self.app.app_context():
+            seller = self.create_user('avatarseller', 'avatarseller@student.uwa.edu.au')
+            buyer = self.create_user('avatarbuyer', 'avatarbuyer@student.uwa.edu.au')
+            item = Item(
+                title='Avatar Listing',
+                description='Listing used to verify seller avatars on browse cards.',
+                price=18,
+                category='Other',
+                condition='Good',
+                seller_id=seller.id,
+            )
+            db.session.add(item)
+            db.session.flush()
+
+            conversation = Conversation(item_id=item.id, seller_id=seller.id, buyer_id=buyer.id)
+            db.session.add(conversation)
+            db.session.flush()
+            db.session.add(Message(conversation_id=conversation.id, sender_id=seller.id, body='This item is still available.'))
+            db.session.commit()
+
+            conversation_id = conversation.id
+            buyer_username = buyer.username
+
+        self.login_user('avatarseller')
+        csrf_token = self.get_csrf_token()
+        profile_response = self.client.get('/profile')
+        profile_body = profile_response.get_data(as_text=True)
+
+        self.assertEqual(profile_response.status_code, 200)
+        self.assertIn('data-avatar-modal-open', profile_body)
+        self.assertIn('data-avatar-crop-form', profile_body)
+        self.assertIn('data-avatar-canvas', profile_body)
+
+        upload_response = self.client.post('/profile/avatar', data={
+            'csrf_token': csrf_token,
+            'avatar_data': 'data:image/png;base64,ZmFrZSBpbWFnZSBieXRlcw==',
+        })
+
+        self.assertEqual(upload_response.status_code, 302)
+
+        with self.app.app_context():
+            seller = User.query.filter_by(username='avatarseller').first()
+            self.assertIsNotNone(seller.avatar_path)
+            self.assertIn('uploads/avatars/', seller.avatar_path)
+            avatar_path = seller.avatar_path
+            avatar_file_path = Path('src/static').joinpath(*avatar_path.split('/'))
+            self.addCleanup(lambda: avatar_file_path.exists() and avatar_file_path.unlink())
+
+        browse_response = self.client.get('/browse')
+        browse_body = browse_response.get_data(as_text=True)
+
+        self.assertEqual(browse_response.status_code, 200)
+        self.assertIn('class="seller-avatar"', browse_body)
+        self.assertIn(avatar_path, browse_body)
+
+        self.login_user(buyer_username)
+        inbox_response = self.client.get(f'/dashboard?conversation={conversation_id}')
+        inbox_body = inbox_response.get_data(as_text=True)
+
+        self.assertEqual(inbox_response.status_code, 200)
+        self.assertIn('class="conversation-avatar"', inbox_body)
+        self.assertIn('class="chat-header-avatar"', inbox_body)
+        self.assertIn('class="chat-avatar"', inbox_body)
+        self.assertIn(avatar_path, inbox_body)
+
     def test_buyer_can_start_conversation_and_send_message(self):
         with self.app.app_context():
             seller = self.create_user('seller', 'seller@student.uwa.edu.au', full_name='Seller User')
@@ -395,6 +506,85 @@ class MarketplaceAppTestCase(unittest.TestCase):
         self.assertEqual(send_response.status_code, 201)
         self.assertTrue(send_data['success'])
         self.assertEqual(len(send_data['conversation']['messages']), 2)
+
+    def test_item_page_uses_compact_contact_entry_for_buyers_only(self):
+        with self.app.app_context():
+            seller = self.create_user('sellercontact', 'sellercontact@student.uwa.edu.au')
+            buyer = self.create_user('buyercontact', 'buyercontact@student.uwa.edu.au')
+            item = Item(
+                title='Textbook Set',
+                description='Useful textbooks for first-year campus units.',
+                price=45,
+                category='Books',
+                condition='Good',
+                seller_id=seller.id,
+            )
+            db.session.add(item)
+            db.session.commit()
+            item_id = item.id
+            buyer_username = buyer.username
+            seller_username = seller.username
+
+        self.login_user(buyer_username)
+        buyer_response = self.client.get(f'/item/{item_id}')
+        buyer_body = buyer_response.get_data(as_text=True)
+
+        self.assertEqual(buyer_response.status_code, 200)
+        self.assertIn('id="contact-seller"', buyer_body)
+        self.assertIn('Icebreaker message', buyer_body)
+        self.assertIn('Is it still available?', buyer_body)
+        self.assertNotIn('data-chat-root', buyer_body)
+
+        self.login_user(seller_username)
+        seller_response = self.client.get(f'/item/{item_id}')
+        seller_body = seller_response.get_data(as_text=True)
+
+        self.assertEqual(seller_response.status_code, 200)
+        self.assertNotIn('id="contact-seller"', seller_body)
+        self.assertNotIn('Icebreaker message', seller_body)
+
+    def test_item_contact_form_redirects_to_inbox_conversation(self):
+        with self.app.app_context():
+            seller = self.create_user('sellerinbox', 'sellerinbox@student.uwa.edu.au')
+            buyer = self.create_user('buyerinbox', 'buyerinbox@student.uwa.edu.au')
+            item = Item(
+                title='Campus Chair',
+                description='Comfortable chair for a study desk.',
+                price=30,
+                category='Furniture',
+                condition='Good',
+                seller_id=seller.id,
+            )
+            db.session.add(item)
+            db.session.commit()
+            item_id = item.id
+            buyer_id = buyer.id
+            buyer_username = buyer.username
+            seller_username = seller.username
+
+        self.login_user(buyer_username)
+        csrf_token = self.get_csrf_token()
+        response = self.post_form(f'/item/{item_id}/conversation', {
+            'message': 'Is it still available?',
+        }, csrf_token=csrf_token)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/dashboard?conversation=', response.headers['Location'])
+        self.assertIn('#inbox', response.headers['Location'])
+
+        with self.app.app_context():
+            conversation = Conversation.query.filter_by(item_id=item_id, buyer_id=buyer_id).first()
+            self.assertIsNotNone(conversation)
+            self.assertEqual(conversation.messages[0].body, 'Is it still available?')
+            conversation_id = conversation.id
+
+        self.login_user(seller_username)
+        seller_dashboard = self.client.get(f'/dashboard?conversation={conversation_id}')
+        seller_body = seller_dashboard.get_data(as_text=True)
+
+        self.assertEqual(seller_dashboard.status_code, 200)
+        self.assertIn('Campus Chair', seller_body)
+        self.assertIn('Is it still available?', seller_body)
 
     def test_conversation_access_is_restricted_to_participants(self):
         with self.app.app_context():

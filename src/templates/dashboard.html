@@ -68,8 +68,7 @@
 
             {% else %}
                 <p>
-                    Complete at least 3 successful trades or reach a reputation score of 4.0+
-                    to unlock referral invitations.
+                    Complete one successful trade, either a purchase or a sale, to unlock referral invitations.
                 </p>
             {% endif %}
         </section>
@@ -193,21 +192,39 @@
             </section>
         </div>
 
-        <section class="dashboard-section" id="inbox">
+        <section class="dashboard-section" id="inbox" data-inbox-root data-current-user-id="{{ current_user.id }}" data-active-conversation-id="{{ active_conversation.id if active_conversation else '' }}">
             <div class="section-heading">
                 <h2>Live inbox</h2>
                 <p>Use this to coordinate pick-up, negotiate timing, and confirm campus meet-ups.</p>
             </div>
             <div class="conversation-layout">
-                <aside class="conversation-list">
+                <aside class="conversation-list" data-conversation-list>
                     {% if conversation_summaries %}
                         {% for conversation in conversation_summaries %}
-                            <a href="{{ url_for('dashboard_page', conversation=conversation.id) }}#inbox" class="conversation-item{% if active_conversation and active_conversation.id == conversation.id %} active{% endif %}">
-                                <div>
-                                    <strong>{{ conversation.item.title }}</strong>
-                                    <p>{{ conversation.counterpart.full_name or conversation.counterpart.username }}</p>
+                            <a
+                                href="{{ url_for('dashboard_page', conversation=conversation.id) }}#inbox"
+                                class="conversation-item{% if active_conversation and active_conversation.id == conversation.id %} active{% endif %}"
+                                data-conversation-card
+                                data-conversation-id="{{ conversation.id }}"
+                                data-latest-message-id="{{ conversation.latest_message.id if conversation.latest_message else '' }}"
+                                data-latest-sender-id="{{ conversation.latest_message.sender.id if conversation.latest_message else '' }}"
+                                data-message-count="{{ conversation.message_count }}"
+                            >
+                                <div class="conversation-copy">
+                                    {% if conversation.counterpart.avatar_url %}
+                                        <img src="{{ conversation.counterpart.avatar_url }}" alt="{{ conversation.counterpart.username }} avatar" class="conversation-avatar">
+                                    {% else %}
+                                        <span class="conversation-avatar conversation-avatar-fallback">{{ conversation.counterpart.username[:1]|upper }}</span>
+                                    {% endif %}
+                                    <div>
+                                        <strong>{{ conversation.item.title }}</strong>
+                                        <p>{{ conversation.counterpart.username }}</p>
+                                    </div>
                                 </div>
-                                <span>{{ conversation.message_count }} msg</span>
+                                <div class="conversation-meta">
+                                    <span data-conversation-count>{{ conversation.message_count }} msg</span>
+                                    <span class="conversation-alert hidden" data-conversation-alert>New</span>
+                                </div>
                             </a>
                         {% endfor %}
                     {% else %}
@@ -218,18 +235,32 @@
                 <div class="chat-card" data-chat-root data-conversation-id="{{ active_conversation.id if active_conversation else '' }}" data-current-user-id="{{ current_user.id }}">
                     {% if active_conversation %}
                         <div class="chat-header">
-                            <div>
-                                <h3>{{ active_conversation.item.title }}</h3>
-                                <p class="panel-text">Conversation with {{ active_conversation.counterpart.full_name or active_conversation.counterpart.username }}</p>
+                            <div class="chat-title-row">
+                                {% if active_conversation.counterpart.avatar_url %}
+                                    <img src="{{ active_conversation.counterpart.avatar_url }}" alt="{{ active_conversation.counterpart.username }} avatar" class="chat-header-avatar">
+                                {% else %}
+                                    <span class="chat-header-avatar chat-avatar-fallback">{{ active_conversation.counterpart.username[:1]|upper }}</span>
+                                {% endif %}
+                                <div>
+                                    <h3>{{ active_conversation.item.title }}</h3>
+                                    <p class="panel-text">Conversation with {{ active_conversation.counterpart.username }}</p>
+                                </div>
                             </div>
                             <div class="chat-status">{% if active_conversation.item.is_sold %}Listing sold{% else %}Listing active{% endif %}</div>
                         </div>
                         <div class="message-thread" data-chat-thread>
                             {% for message in active_conversation.messages %}
-                                <div class="message-bubble {% if message.sender.id == current_user.id %}mine{% else %}theirs{% endif %}">
-                                    <span class="message-author">{{ message.sender.full_name or message.sender.username }}</span>
-                                    <span class="message-body">{{ message.body }}</span>
-                                    <span class="message-time">{{ message.created_at_display }}</span>
+                                <div class="message-row {% if message.sender.id == current_user.id %}mine{% else %}theirs{% endif %}">
+                                    {% if message.sender.avatar_url %}
+                                        <img src="{{ message.sender.avatar_url }}" alt="{{ message.sender.username }} avatar" class="chat-avatar">
+                                    {% else %}
+                                        <span class="chat-avatar chat-avatar-fallback">{{ message.sender.username[:1]|upper }}</span>
+                                    {% endif %}
+                                    <div class="message-bubble {% if message.sender.id == current_user.id %}mine{% else %}theirs{% endif %}">
+                                        <span class="message-author">{{ message.sender.username }}</span>
+                                        <span class="message-body">{{ message.body }}</span>
+                                        <span class="message-time">{{ message.created_at_display }}</span>
+                                    </div>
                                 </div>
                             {% endfor %}
                         </div>
@@ -241,7 +272,9 @@
                             <button type="submit" class="btn btn-primary">Send reply</button>
                         </form>
                     {% else %}
-                        <div class="empty-state">Open a conversation to view messages.</div>
+                        <div class="inbox-empty-panel" aria-hidden="true">
+                            <span>Latest news</span>
+                        </div>
                     {% endif %}
                 </div>
             </div>

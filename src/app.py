@@ -1,3 +1,5 @@
+import base64
+import binascii
 from datetime import datetime, timedelta
 from functools import wraps
 import os
@@ -23,6 +25,7 @@ UWA_STUDENT_DOMAIN = '@student.uwa.edu.au'
 MAX_MESSAGE_LENGTH = 600
 MAX_IMAGES_PER_ITEM = 6
 ALLOWED_IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.gif'}
+MAX_AVATAR_UPLOAD_BYTES = 3 * 1024 * 1024
 DRAFT_TITLE_PLACEHOLDER = 'Untitled draft'
 MAX_WALLET_ACTIVITY = 8
 MIN_TOP_UP_AMOUNT = 5.0
@@ -64,7 +67,9 @@ def create_app(config_name='development'):
     login_manager.login_view = 'login_page'
 
     upload_root = os.path.join(app.static_folder, 'uploads', 'items')
+    avatar_root = os.path.join(app.static_folder, 'uploads', 'avatars')
     os.makedirs(upload_root, exist_ok=True)
+    os.makedirs(avatar_root, exist_ok=True)
 
     @login_manager.user_loader
     def load_user(user_id):
@@ -147,7 +152,47 @@ def create_app(config_name='development'):
 
         if 'referrals' not in table_names:
             Referral.__table__.create(db.engine)
-    
+
+    def ensure_schema_supports_avatars():
+        inspector = inspect(db.engine)
+        if 'users' not in inspector.get_table_names():
+            return
+
+        user_columns = {column['name'] for column in inspector.get_columns('users')}
+        if 'avatar_path' in user_columns:
+            return
+
+        with db.engine.begin() as connection:
+            connection.execute(text('ALTER TABLE users ADD COLUMN avatar_path VARCHAR(255)'))
+
+    def ensure_schema_supports_inventory():
+        inspector = inspect(db.engine)
+        table_names = inspector.get_table_names()
+
+        with db.engine.begin() as connection:
+            if 'items' in table_names:
+                item_columns = {column['name'] for column in inspector.get_columns('items')}
+                if 'quantity' not in item_columns:
+                    connection.execute(text('ALTER TABLE items ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1'))
+
+            if 'transactions' in table_names:
+                transaction_columns = {column['name'] for column in inspector.get_columns('transactions')}
+                if 'quantity_bought' not in transaction_columns:
+                    connection.execute(text('ALTER TABLE transactions ADD COLUMN quantity_bought INTEGER NOT NULL DEFAULT 1'))
+
+    def ensure_schema_supports_email_verification():
+        inspector = inspect(db.engine)
+        if 'users' not in inspector.get_table_names():
+            return
+
+        user_columns = {column['name'] for column in inspector.get_columns('users')}
+        with db.engine.begin() as connection:
+            if 'email_verified' not in user_columns:
+                connection.execute(text('ALTER TABLE users ADD COLUMN email_verified BOOLEAN NOT NULL DEFAULT 1'))
+            if 'email_verification_code' not in user_columns:
+                connection.execute(text('ALTER TABLE users ADD COLUMN email_verification_code VARCHAR(10)'))
+            if 'email_verification_code_expires_at' not in user_columns:
+                connection.execute(text('ALTER TABLE users ADD COLUMN email_verification_code_expires_at DATETIME'))
 
     def save_item_images(item, image_files):
         image_records = []
@@ -176,6 +221,55 @@ def create_app(config_name='development'):
             ))
 
         return image_records, saved_paths
+
+    def persist_user_avatar(user, image_bytes, extension, safe_stem='avatar'):
+        if not image_bytes:
+            return None, 'Choose an image file before uploading.', 400
+
+        if len(image_bytes) > MAX_AVATAR_UPLOAD_BYTES:
+            return None, 'Avatar image must be 3 MB or smaller.', 400
+
+        safe_stem = secure_filename(safe_stem)[:48] or 'avatar'
+        generated_name = f'avatar-{secrets.token_hex(8)}-{safe_stem}.{extension}'
+        user_avatar_dir = os.path.join(avatar_root, str(user.id))
+        os.makedirs(user_avatar_dir, exist_ok=True)
+
+        absolute_path = os.path.join(user_avatar_dir, generated_name)
+        relative_path = '/'.join(['uploads', 'avatars', str(user.id), generated_name])
+        old_avatar_path = user.avatar_path
+
+        with open(absolute_path, 'wb') as avatar_output:
+            avatar_output.write(image_bytes)
+
+        user.avatar_path = relative_path
+        db.session.commit()
+
+        if old_avatar_path:
+            remove_saved_files([get_absolute_upload_path(old_avatar_path)])
+
+        return relative_path, None, 200
+
+    def save_user_avatar(user, avatar_file):
+        original_filename = avatar_file.filename or ''
+        if not is_allowed_image_filename(original_filename):
+            allowed_formats = ', '.join(sorted(ext.lstrip('.') for ext in ALLOWED_IMAGE_EXTENSIONS))
+            return None, f'Only {allowed_formats} image files are supported', 400
+
+        extension = os.path.splitext(original_filename)[1].lower().lstrip('.')
+        safe_stem = os.path.splitext(original_filename)[0]
+        return persist_user_avatar(user, avatar_file.read(), extension, safe_stem)
+
+    def save_cropped_user_avatar(user, avatar_data):
+        data_url_prefix = 'data:image/png;base64,'
+        if not avatar_data.startswith(data_url_prefix):
+            return None, 'Crop and confirm an avatar image before uploading.', 400
+
+        try:
+            image_bytes = base64.b64decode(avatar_data[len(data_url_prefix):], validate=True)
+        except (binascii.Error, ValueError):
+            return None, 'Avatar crop data could not be read.', 400
+
+        return persist_user_avatar(user, image_bytes, 'png', 'cropped-avatar')
 
     def round_money(value):
         return round(float(value or 0) + 1e-9, 2)
@@ -214,12 +308,12 @@ def create_app(config_name='development'):
         users_without_verification = User.query.filter(
             (User.email_verified == None) | (User.email_verified == False)
         ).all()
-        
+
         for user in users_without_verification:
             if user.email_verification_code is None:
                 # Only set to verified if they don't have a pending verification code
                 user.email_verified = True
-        
+
         if users_without_verification:
             db.session.commit()
 
@@ -231,7 +325,8 @@ def create_app(config_name='development'):
         admin = User(
             username='admin',
             email='admin@localhost',
-            full_name='Administrator'
+            full_name='Administrator',
+            email_verified=True,
         )
         admin.set_password('123456')
         db.session.add(admin)
@@ -571,6 +666,7 @@ def create_app(config_name='development'):
             'username': user.username,
             'full_name': user.full_name,
             'bio': user.bio or '',
+            'avatar_url': url_for('static', filename=user.avatar_path) if user.avatar_path else None,
             'is_uwa_verified': is_valid_uwa_student_email(user.email),
             'reputation': get_user_reputation(user),
             'referral_code': user.referral_code,
@@ -623,6 +719,7 @@ def create_app(config_name='development'):
                 'id': message.sender.id,
                 'username': message.sender.username,
                 'full_name': message.sender.full_name,
+                'avatar_url': url_for('static', filename=message.sender.avatar_path) if message.sender.avatar_path else None,
             },
         }
 
@@ -729,7 +826,7 @@ def create_app(config_name='development'):
             ],
         }
 
-    def select_active_conversation(conversations, requested_id):
+    def select_active_conversation(conversations, requested_id, *, default_to_first=True):
         if not conversations:
             return None
 
@@ -738,7 +835,7 @@ def create_app(config_name='development'):
                 if conversation.id == requested_id:
                     return conversation
 
-        return conversations[0]
+        return conversations[0] if default_to_first else None
 
     def get_item_or_none(item_id):
         return db.session.get(Item, item_id)
@@ -833,7 +930,11 @@ def create_app(config_name='development'):
             .order_by(Conversation.updated_at.desc())
             .all()
         )
-        active = select_active_conversation(conversations, request.args.get('conversation', type=int))
+        active = select_active_conversation(
+            conversations,
+            request.args.get('conversation', type=int),
+            default_to_first=False,
+        )
         return {
             'dashboard': dashboard,
             'conversation_summaries': [
@@ -867,23 +968,23 @@ def create_app(config_name='development'):
 
     def validate_password_strength(password):
         """Validate password strength requirements.
-        
+
         Returns: (is_valid, error_message)
         """
         import re
-        
+
         if len(password) < 8:
             return False, 'Password must be at least 8 characters'
-        
+
         if not re.search(r'[A-Z]', password):
             return False, 'Password must contain at least one uppercase letter'
-        
+
         if not re.search(r'[a-z]', password):
             return False, 'Password must contain at least one lowercase letter'
-        
+
         if not re.search(r'[!@#$%^&*()_+\-=\[\]{};:\'",.<>?/\\|`~]', password):
             return False, 'Password must contain at least one special character (!@#$%^&* etc.)'
-        
+
         return True, None
 
     def generate_verification_code():
@@ -969,13 +1070,13 @@ UWA Student Marketplace Team'''
         user.set_password(password)
         db.session.add(user)
         db.session.flush()
-        
+
         # Send verification email
         success, error = send_verification_email(user)
         if not success:
             db.session.rollback()
             return None, f'Failed to send verification email: {error}', 500
-        
+
         db.session.commit()
         return user, None, 201
 
@@ -1035,7 +1136,7 @@ UWA Student Marketplace Team'''
                 'quantity': quantity_value,
             }, None, 200
 
-        if not all([title, description, price, category, condition, quantity]):
+        if not all([title, description, price, category, condition]):
             return None, 'All fields are required to publish a listing', 400
 
         if len(title) < 4:
@@ -1057,12 +1158,15 @@ UWA Student Marketplace Team'''
         except (TypeError, ValueError):
             return None, 'Price must be a positive number', 400
 
-        try:
-            quantity_value = int(quantity)
-            if quantity_value < 1:
-                raise ValueError
-        except (TypeError, ValueError):
-            return None, 'Quantity must be a positive number', 400
+        if quantity in (None, ''):
+            quantity_value = 1
+        else:
+            try:
+                quantity_value = int(quantity)
+                if quantity_value < 1:
+                    raise ValueError
+            except (TypeError, ValueError):
+                return None, 'Quantity must be a positive number', 400
 
         return {
             'title': title,
@@ -1265,6 +1369,9 @@ UWA Student Marketplace Team'''
         db.create_all()
         ensure_schema_supports_drafts()
         ensure_schema_supports_referrals()
+        ensure_schema_supports_avatars()
+        ensure_schema_supports_inventory()
+        ensure_schema_supports_email_verification()
         ensure_existing_users_have_wallets()
         ensure_existing_users_have_email_verified()
         ensure_admin_account_exists()
@@ -1376,7 +1483,7 @@ UWA Student Marketplace Team'''
                 return render_template('verify_email.html', user_id=user_id, email=user.email), 400
 
             # Create wallet for verified user
-            db.session.add(Wallet(user_id=user.id, available_balance=0.0))
+            get_or_create_wallet(user)
             db.session.commit()
 
             flash('Email verified successfully! You can now login.', 'success')
@@ -1554,13 +1661,15 @@ UWA Student Marketplace Team'''
             return redirect(url_for('edit_listing_page', item_id=item.id))
 
         purchase_wallet = None
+        contact_conversation = None
         if current_user.is_authenticated and current_user.id != item.seller_id:
             purchase_wallet = build_purchase_wallet_context(current_user, item.price)
+            contact_conversation = Conversation.query.filter_by(item_id=item.id, buyer_id=current_user.id).first()
 
         return render_template(
             'item_detail.html',
             item=serialize_item(item),
-            chat=resolve_item_chat_context(item),
+            contact_conversation_id=contact_conversation.id if contact_conversation else None,
             purchase_wallet=purchase_wallet,
         )
 
@@ -1579,10 +1688,10 @@ UWA Student Marketplace Team'''
         )
         if error:
             flash(error, 'error')
-            return redirect(url_for('item_detail_page', item_id=item.id) + '#chat')
+            return redirect(url_for('item_detail_page', item_id=item.id) + '#contact-seller')
 
         flash('Conversation ready.', 'success')
-        return redirect(url_for('item_detail_page', item_id=item.id, conversation=conversation.id) + '#chat')
+        return redirect(url_for('dashboard_page', conversation=conversation.id) + '#inbox')
 
     @app.route('/conversations/<int:conversation_id>/reply', methods=['POST'])
     @login_required
@@ -1603,8 +1712,6 @@ UWA Student Marketplace Team'''
         if is_safe_redirect_target(next_url):
             return redirect(next_url)
 
-        if conversation.item.seller_id == current_user.id:
-            return redirect(url_for('item_detail_page', item_id=conversation.item.id, conversation=conversation.id) + '#chat')
         return redirect(url_for('dashboard_page', conversation=conversation.id) + '#inbox')
 
     @app.route('/wallet/payment-methods', methods=['POST'])
@@ -1676,7 +1783,7 @@ UWA Student Marketplace Team'''
     def generate_referral_code_route():
         if not is_referral_eligible(current_user):
             flash(
-                'You need at least 3 completed trades or a reputation score of 4.0+ to generate a referral code.',
+                'Complete one successful purchase or sale to generate a referral code.',
                 'error'
             )
             return redirect(url_for('dashboard_page'))
@@ -1689,6 +1796,33 @@ UWA Student Marketplace Team'''
     @login_required
     def profile_page():
         return render_template('profile.html', user=current_user)
+
+    @app.route('/profile/avatar', methods=['POST'])
+    @login_required
+    @csrf_protect
+    def profile_avatar_page():
+        avatar_data = request.form.get('avatar_data', '').strip()
+        if avatar_data:
+            _, error, _ = save_cropped_user_avatar(current_user, avatar_data)
+            if error:
+                flash(error, 'error')
+                return redirect(url_for('profile_page'))
+
+            flash('Profile avatar updated.', 'success')
+            return redirect(url_for('profile_page'))
+
+        avatar_file = request.files.get('avatar')
+        if not avatar_file or not avatar_file.filename:
+            flash('Choose an image file before uploading.', 'error')
+            return redirect(url_for('profile_page'))
+
+        _, error, _ = save_user_avatar(current_user, avatar_file)
+        if error:
+            flash(error, 'error')
+            return redirect(url_for('profile_page'))
+
+        flash('Profile avatar updated.', 'success')
+        return redirect(url_for('profile_page'))
 
     @app.route('/api/auth/register', methods=['POST'])
     @csrf_protect
@@ -1740,7 +1874,7 @@ UWA Student Marketplace Team'''
             return jsonify({'success': False, 'error': error}), 400
 
         # Create wallet for verified user
-        db.session.add(Wallet(user_id=user.id, available_balance=0.0))
+        get_or_create_wallet(user)
         db.session.commit()
 
         return jsonify({
