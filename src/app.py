@@ -1262,9 +1262,14 @@ UWA Student Marketplace Team'''
 
         buyer_wallet = get_or_create_wallet(buyer)
         seller_wallet = get_or_create_wallet(item.seller)
-        item_price = round_money(item.price * quantity)
-        if buyer_wallet.available_balance < item_price:
-            shortfall = round_money(item_price - buyer_wallet.available_balance)
+        
+        # Calculate seller proceeds and platform fee
+        seller_proceeds = round_money(item.price * quantity)
+        platform_fee = round_money(seller_proceeds * 0.05)  # 5% platform commission
+        total_price = round_money(seller_proceeds + platform_fee)
+        
+        if buyer_wallet.available_balance < total_price:
+            shortfall = round_money(total_price - buyer_wallet.available_balance)
             return None, (
                 f'Insufficient wallet balance. Top up ${format_money(shortfall)} more '
                 'from your linked bank card before purchasing this item.'
@@ -1274,7 +1279,8 @@ UWA Student Marketplace Team'''
             item_id=item.id,
             seller_id=item.seller_id,
             buyer_id=buyer.id,
-            price=item_price,
+            price=total_price,
+            platform_fee=platform_fee,
             quantity_bought=quantity,
             status='completed',
         )
@@ -1282,24 +1288,39 @@ UWA Student Marketplace Team'''
         item.quantity -= quantity
         if item.quantity == 0:
             item.is_sold = True
-        buyer_wallet.available_balance = round_money(buyer_wallet.available_balance - item_price)
-        seller_wallet.available_balance = round_money(seller_wallet.available_balance + item_price)
+        buyer_wallet.available_balance = round_money(buyer_wallet.available_balance - total_price)
+        seller_wallet.available_balance = round_money(seller_wallet.available_balance + seller_proceeds)
         db.session.add(transaction)
         db.session.flush()
+        
         record_wallet_entry(
             buyer_wallet,
             'purchase',
-            -item_price,
+            -total_price,
             f'Purchased {quantity} unit{"s" if quantity != 1 else ""} of {item.title}',
             transaction=transaction,
         )
         record_wallet_entry(
             seller_wallet,
             'sale_proceeds',
-            item_price,
+            seller_proceeds,
             f'Sale proceeds held in wallet for {item.title}',
             transaction=transaction,
         )
+        
+        # Add platform fee to admin wallet
+        admin_user = User.query.filter_by(username='admin').first()
+        if admin_user:
+            admin_wallet = get_or_create_wallet(admin_user)
+            admin_wallet.available_balance = round_money(admin_wallet.available_balance + platform_fee)
+            record_wallet_entry(
+                admin_wallet,
+                'platform_fee',
+                platform_fee,
+                f'Platform commission from sale of {item.title}',
+                transaction=transaction,
+            )
+        
         db.session.commit()
         return transaction, None, 200
 
@@ -1640,9 +1661,10 @@ UWA Student Marketplace Team'''
             flash(error, 'error')
             return redirect(url_for('item_detail_page', item_id=item.id))
 
+        seller_proceeds = round_money(transaction.price - transaction.platform_fee)
         flash(
             f'Purchase completed for {transaction.quantity_bought} unit{"s" if transaction.quantity_bought != 1 else ""} of {transaction.item.title}. '
-            f'${format_money(transaction.price)} was paid from your wallet and moved into the seller wallet.',
+            f'${format_money(transaction.price)} was paid from your wallet (${format_money(seller_proceeds)} to seller, ${format_money(transaction.platform_fee)} platform fee).',
             'success',
         )
         return redirect(url_for('dashboard_page'))
@@ -1663,7 +1685,9 @@ UWA Student Marketplace Team'''
         purchase_wallet = None
         contact_conversation = None
         if current_user.is_authenticated and current_user.id != item.seller_id:
-            purchase_wallet = build_purchase_wallet_context(current_user, item.price)
+            # Calculate total price including 5% platform fee
+            total_price_with_fee = round_money(item.price * 1.05)
+            purchase_wallet = build_purchase_wallet_context(current_user, total_price_with_fee)
             contact_conversation = Conversation.query.filter_by(item_id=item.id, buyer_id=current_user.id).first()
 
         return render_template(
@@ -2058,6 +2082,8 @@ UWA Student Marketplace Team'''
                 'item_id': transaction.item_id,
                 'quantity_bought': transaction.quantity_bought,
                 'price': transaction.price,
+                'platform_fee': transaction.platform_fee,
+                'seller_proceeds': round_money(transaction.price - transaction.platform_fee),
                 'status': transaction.status,
                 'created_at': transaction.created_at.isoformat(),
                 'created_at_display': format_timestamp(transaction.created_at),
@@ -2207,24 +2233,33 @@ UWA Student Marketplace Team'''
     def api_get_cart():
         cart_items = CartItem.query.filter_by(user_id=current_user.id).all()
         items = []
-        total_price = 0.0
+        total_seller_price = 0.0
+        total_platform_fee = 0.0
         for cart_item in cart_items:
             item = cart_item.item
             if item.is_sold or item.is_draft:
                 continue
-            item_total = round_money(item.price * cart_item.quantity)
-            total_price = round_money(total_price + item_total)
+            item_seller_price = round_money(item.price * cart_item.quantity)
+            item_platform_fee = round_money(item_seller_price * 0.05)
+            item_total = round_money(item_seller_price + item_platform_fee)
+            total_seller_price = round_money(total_seller_price + item_seller_price)
+            total_platform_fee = round_money(total_platform_fee + item_platform_fee)
             items.append({
                 'cart_item_id': cart_item.id,
                 'item': serialize_item(item),
                 'quantity': cart_item.quantity,
+                'item_seller_price': item_seller_price,
+                'item_platform_fee': item_platform_fee,
                 'item_total': item_total,
             })
+        total_price = round_money(total_seller_price + total_platform_fee)
         return jsonify({
             'success': True,
             'cart': {
                 'items': items,
                 'total_items': len(items),
+                'total_seller_price': total_seller_price,
+                'total_platform_fee': total_platform_fee,
                 'total_price': total_price,
             }
         }), 200
@@ -2357,6 +2392,8 @@ UWA Student Marketplace Team'''
                     'item_title': t.item.title,
                     'quantity': t.quantity_bought,
                     'price': t.price,
+                    'platform_fee': t.platform_fee,
+                    'seller_proceeds': round_money(t.price - t.platform_fee),
                 }
                 for t in transactions
             ]

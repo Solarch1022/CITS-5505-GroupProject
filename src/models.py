@@ -121,7 +121,8 @@ class Transaction(db.Model):
     seller_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
     buyer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
     quantity_bought = db.Column(db.Integer, default=1, nullable=False)  # Quantity purchased in this transaction
-    price = db.Column(db.Float, nullable=False)
+    price = db.Column(db.Float, nullable=False)  # Price paid by buyer (including platform fee)
+    platform_fee = db.Column(db.Float, default=0.0, nullable=False)  # Platform commission collected
     status = db.Column(db.String(20), default='pending')  # pending, completed, cancelled
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
