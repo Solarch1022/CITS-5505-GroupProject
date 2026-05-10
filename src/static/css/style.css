@@ -1980,7 +1980,7 @@ main {
 .wallet-mini-metrics {
     display: grid;
     gap: 0.75rem;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: 1fr;
 }
 
 .wallet-mini-metric {
@@ -2102,10 +2102,6 @@ main {
 
     .message-bubble {
         max-width: calc(100% - 44px);
-    }
-
-    .wallet-mini-metrics {
-        grid-template-columns: 1fr;
     }
 
     .wallet-activity-meta {

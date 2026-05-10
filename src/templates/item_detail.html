@@ -78,7 +78,7 @@
                                 You have enough funds for this checkout.
                             {% else %}
                                 You need ${{ purchase_wallet.shortfall_display }} more. Top up from your
-                                <a href="{{ url_for('dashboard_page') }}#wallet">wallet</a> first.
+                                <a href="{{ url_for('wallet_page') }}">wallet</a> first.
                             {% endif %}
                         </p>
                     {% endif %}

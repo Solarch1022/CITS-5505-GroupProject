@@ -16,26 +16,16 @@ from werkzeug.utils import secure_filename
 sys.path.insert(0, os.path.dirname(__file__))
 
 from config import config
+from constants import (
+    ALLOWED_IMAGE_EXTENSIONS, DRAFT_TITLE_PLACEHOLDER, ITEM_CATEGORIES,
+    ITEM_CONDITIONS, MAX_AVATAR_UPLOAD_BYTES, MAX_IMAGES_PER_ITEM,
+    MAX_MESSAGE_LENGTH, MAX_TOP_UP_AMOUNT, MAX_WALLET_ACTIVITY,
+    MIN_WITHDRAWAL_AMOUNT, MIN_TOP_UP_AMOUNT, PLATFORM_COMMISSION_RATE,
+    REFERRAL_REQUIRED_COMPLETED_TRADES, REFERRAL_REQUIRED_REPUTATION,
+    REFERRAL_REWARD_AMOUNT, UWA_STUDENT_DOMAIN, WITHDRAWAL_FEE_MINIMUM,
+    WITHDRAWAL_FEE_RATE
+)
 from models import Conversation, Item, ItemImage, Message, PaymentMethod, Referral, Transaction, User, Wallet, WalletEntry, CartItem, db
-
-
-ITEM_CATEGORIES = ['Electronics', 'Furniture', 'Clothing', 'Books', 'Sports', 'Other']
-ITEM_CONDITIONS = ['New', 'Like New', 'Good', 'Fair']
-UWA_STUDENT_DOMAIN = '@student.uwa.edu.au'
-MAX_MESSAGE_LENGTH = 600
-MAX_IMAGES_PER_ITEM = 6
-ALLOWED_IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.gif'}
-MAX_AVATAR_UPLOAD_BYTES = 3 * 1024 * 1024
-DRAFT_TITLE_PLACEHOLDER = 'Untitled draft'
-MAX_WALLET_ACTIVITY = 8
-MIN_TOP_UP_AMOUNT = 5.0
-MAX_TOP_UP_AMOUNT = 2000.0
-MIN_WITHDRAWAL_AMOUNT = 5.0
-WITHDRAWAL_FEE_RATE = 0.02
-WITHDRAWAL_FEE_MINIMUM = 0.50
-REFERRAL_REWARD_AMOUNT = 5.0
-REFERRAL_REQUIRED_COMPLETED_TRADES = 3
-REFERRAL_REQUIRED_REPUTATION = 4.0
 
 
 def is_valid_uwa_student_email(email):
@@ -44,6 +34,29 @@ def is_valid_uwa_student_email(email):
 
 def format_timestamp(value):
     return value.strftime('%d %b %Y, %I:%M %p')
+
+
+def round_money(value):
+    return round(float(value or 0) + 1e-9, 2)
+
+
+def format_money(value):
+    return f'{round_money(value):.2f}'
+
+
+def get_display_price(seller_price):
+    """Get the price displayed to buyers (includes 5% platform commission)"""
+    return round_money(seller_price * (1 + PLATFORM_COMMISSION_RATE))
+
+
+def get_seller_proceeds(display_price):
+    """Get the amount seller receives from display price"""
+    return round_money(display_price / (1 + PLATFORM_COMMISSION_RATE))
+
+
+def get_platform_fee(display_price):
+    """Get the platform fee from display price"""
+    return round_money(display_price - get_seller_proceeds(display_price))
 
 
 def is_safe_redirect_target(target):
@@ -270,12 +283,6 @@ def create_app(config_name='development'):
             return None, 'Avatar crop data could not be read.', 400
 
         return persist_user_avatar(user, image_bytes, 'png', 'cropped-avatar')
-
-    def round_money(value):
-        return round(float(value or 0) + 1e-9, 2)
-
-    def format_money(value):
-        return f'{round_money(value):.2f}'
 
     def calculate_withdrawal_fee(amount):
         return round_money(max(WITHDRAWAL_FEE_MINIMUM, amount * WITHDRAWAL_FEE_RATE))
@@ -531,7 +538,8 @@ def create_app(config_name='development'):
     def build_purchase_wallet_context(user, item_price):
         wallet = get_or_create_wallet(user, commit=True)
         balance = round_money(wallet.available_balance)
-        item_total = round_money(item_price)
+        # Calculate display price (what buyer will pay)
+        item_total = get_display_price(item_price)
         return {
             'available_balance': balance,
             'available_balance_display': format_money(balance),
@@ -687,11 +695,14 @@ def create_app(config_name='development'):
             }
             for image in item.images
         ]
+        # Display price includes platform commission (5% markup)
+        display_price = get_display_price(item.price)
         payload = {
             'id': item.id,
             'title': title or DRAFT_TITLE_PLACEHOLDER,
             'raw_title': title,
-            'price': item.price,
+            'price': display_price,
+            'seller_price': item.price,
             'quantity': item.quantity,
             'category': item.category,
             'condition': item.condition,
@@ -1262,9 +1273,15 @@ UWA Student Marketplace Team'''
 
         buyer_wallet = get_or_create_wallet(buyer)
         seller_wallet = get_or_create_wallet(item.seller)
-        item_price = round_money(item.price * quantity)
-        if buyer_wallet.available_balance < item_price:
-            shortfall = round_money(item_price - buyer_wallet.available_balance)
+        
+        # Calculate prices using display price (what buyer sees and pays)
+        display_price_per_unit = get_display_price(item.price)
+        total_display_price = round_money(display_price_per_unit * quantity)
+        seller_proceeds = get_seller_proceeds(total_display_price)
+        platform_fee = get_platform_fee(total_display_price)
+        
+        if buyer_wallet.available_balance < total_display_price:
+            shortfall = round_money(total_display_price - buyer_wallet.available_balance)
             return None, (
                 f'Insufficient wallet balance. Top up ${format_money(shortfall)} more '
                 'from your linked bank card before purchasing this item.'
@@ -1274,7 +1291,8 @@ UWA Student Marketplace Team'''
             item_id=item.id,
             seller_id=item.seller_id,
             buyer_id=buyer.id,
-            price=item_price,
+            price=total_display_price,
+            platform_fee=platform_fee,
             quantity_bought=quantity,
             status='completed',
         )
@@ -1282,24 +1300,39 @@ UWA Student Marketplace Team'''
         item.quantity -= quantity
         if item.quantity == 0:
             item.is_sold = True
-        buyer_wallet.available_balance = round_money(buyer_wallet.available_balance - item_price)
-        seller_wallet.available_balance = round_money(seller_wallet.available_balance + item_price)
+        buyer_wallet.available_balance = round_money(buyer_wallet.available_balance - total_display_price)
+        seller_wallet.available_balance = round_money(seller_wallet.available_balance + seller_proceeds)
         db.session.add(transaction)
         db.session.flush()
+        
         record_wallet_entry(
             buyer_wallet,
             'purchase',
-            -item_price,
+            -total_display_price,
             f'Purchased {quantity} unit{"s" if quantity != 1 else ""} of {item.title}',
             transaction=transaction,
         )
         record_wallet_entry(
             seller_wallet,
             'sale_proceeds',
-            item_price,
+            seller_proceeds,
             f'Sale proceeds held in wallet for {item.title}',
             transaction=transaction,
         )
+        
+        # Add platform fee to admin wallet
+        admin_user = User.query.filter_by(username='admin').first()
+        if admin_user:
+            admin_wallet = get_or_create_wallet(admin_user)
+            admin_wallet.available_balance = round_money(admin_wallet.available_balance + platform_fee)
+            record_wallet_entry(
+                admin_wallet,
+                'platform_fee',
+                platform_fee,
+                f'Platform commission from sale of {item.title}',
+                transaction=transaction,
+            )
+        
         db.session.commit()
         return transaction, None, 200
 
@@ -1642,7 +1675,7 @@ UWA Student Marketplace Team'''
 
         flash(
             f'Purchase completed for {transaction.quantity_bought} unit{"s" if transaction.quantity_bought != 1 else ""} of {transaction.item.title}. '
-            f'${format_money(transaction.price)} was paid from your wallet and moved into the seller wallet.',
+            f'${format_money(transaction.price)} was paid from your wallet.',
             'success',
         )
         return redirect(url_for('dashboard_page'))
@@ -1727,10 +1760,10 @@ UWA Student Marketplace Team'''
         )
         if error:
             flash(error, 'error')
-            return redirect(url_for('dashboard_page') + '#wallet')
+            return redirect(url_for('wallet_page'))
 
         flash(f'Linked {method.masked_details}. Only masked payment details are stored in this demo.', 'success')
-        return redirect(url_for('dashboard_page') + '#wallet')
+        return redirect(url_for('wallet_page'))
 
     @app.route('/wallet/top-up', methods=['POST'])
     @login_required
@@ -1743,14 +1776,14 @@ UWA Student Marketplace Team'''
         )
         if error:
             flash(error, 'error')
-            return redirect(url_for('dashboard_page') + '#wallet')
+            return redirect(url_for('wallet_page'))
 
         flash(
             f'Wallet topped up by ${format_money(entry.amount)}. '
             f'Available balance is now ${format_money(wallet.available_balance)}.',
             'success',
         )
-        return redirect(url_for('dashboard_page') + '#wallet')
+        return redirect(url_for('wallet_page'))
 
     @app.route('/wallet/withdraw', methods=['POST'])
     @login_required
@@ -1763,19 +1796,24 @@ UWA Student Marketplace Team'''
         )
         if error:
             flash(error, 'error')
-            return redirect(url_for('dashboard_page') + '#wallet')
+            return redirect(url_for('wallet_page'))
 
         flash(
             f'Withdrawal of ${format_money(abs(withdrawal_entry.amount))} requested to '
             f'{withdrawal_entry.payment_method.masked_details}. Fee charged: ${format_money(abs(fee_entry.amount))}.',
             'success',
         )
-        return redirect(url_for('dashboard_page') + '#wallet')
+        return redirect(url_for('wallet_page'))
 
     @app.route('/dashboard')
     @login_required
     def dashboard_page():
         return render_template('dashboard.html', **resolve_dashboard_context(current_user))
+
+    @app.route('/wallet')
+    @login_required
+    def wallet_page():
+        return render_template('wallet.html', **resolve_dashboard_context(current_user))
 
     @app.route('/referral/generate', methods=['POST'])
     @login_required
@@ -2058,6 +2096,8 @@ UWA Student Marketplace Team'''
                 'item_id': transaction.item_id,
                 'quantity_bought': transaction.quantity_bought,
                 'price': transaction.price,
+                'platform_fee': transaction.platform_fee,
+                'seller_proceeds': round_money(transaction.price - transaction.platform_fee),
                 'status': transaction.status,
                 'created_at': transaction.created_at.isoformat(),
                 'created_at_display': format_timestamp(transaction.created_at),
@@ -2212,7 +2252,9 @@ UWA Student Marketplace Team'''
             item = cart_item.item
             if item.is_sold or item.is_draft:
                 continue
-            item_total = round_money(item.price * cart_item.quantity)
+            # Display price is what buyer sees and pays
+            item_display_price = get_display_price(item.price)
+            item_total = round_money(item_display_price * cart_item.quantity)
             total_price = round_money(total_price + item_total)
             items.append({
                 'cart_item_id': cart_item.id,
@@ -2357,6 +2399,8 @@ UWA Student Marketplace Team'''
                     'item_title': t.item.title,
                     'quantity': t.quantity_bought,
                     'price': t.price,
+                    'platform_fee': t.platform_fee,
+                    'seller_proceeds': round_money(t.price - t.platform_fee),
                 }
                 for t in transactions
             ]
