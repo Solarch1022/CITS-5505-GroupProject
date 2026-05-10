@@ -16,27 +16,16 @@ from werkzeug.utils import secure_filename
 sys.path.insert(0, os.path.dirname(__file__))
 
 from config import config
+from constants import (
+    ALLOWED_IMAGE_EXTENSIONS, DRAFT_TITLE_PLACEHOLDER, ITEM_CATEGORIES,
+    ITEM_CONDITIONS, MAX_AVATAR_UPLOAD_BYTES, MAX_IMAGES_PER_ITEM,
+    MAX_MESSAGE_LENGTH, MAX_TOP_UP_AMOUNT, MAX_WALLET_ACTIVITY,
+    MIN_WITHDRAWAL_AMOUNT, MIN_TOP_UP_AMOUNT, PLATFORM_COMMISSION_RATE,
+    REFERRAL_REQUIRED_COMPLETED_TRADES, REFERRAL_REQUIRED_REPUTATION,
+    REFERRAL_REWARD_AMOUNT, UWA_STUDENT_DOMAIN, WITHDRAWAL_FEE_MINIMUM,
+    WITHDRAWAL_FEE_RATE
+)
 from models import Conversation, Item, ItemImage, Message, PaymentMethod, Referral, Transaction, User, Wallet, WalletEntry, CartItem, db
-
-
-ITEM_CATEGORIES = ['Electronics', 'Furniture', 'Clothing', 'Books', 'Sports', 'Other']
-ITEM_CONDITIONS = ['New', 'Like New', 'Good', 'Fair']
-UWA_STUDENT_DOMAIN = '@student.uwa.edu.au'
-MAX_MESSAGE_LENGTH = 600
-MAX_IMAGES_PER_ITEM = 6
-ALLOWED_IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.gif'}
-MAX_AVATAR_UPLOAD_BYTES = 3 * 1024 * 1024
-DRAFT_TITLE_PLACEHOLDER = 'Untitled draft'
-MAX_WALLET_ACTIVITY = 8
-MIN_TOP_UP_AMOUNT = 5.0
-MAX_TOP_UP_AMOUNT = 2000.0
-MIN_WITHDRAWAL_AMOUNT = 5.0
-WITHDRAWAL_FEE_RATE = 0.02
-WITHDRAWAL_FEE_MINIMUM = 0.50
-REFERRAL_REWARD_AMOUNT = 5.0
-REFERRAL_REQUIRED_COMPLETED_TRADES = 3
-REFERRAL_REQUIRED_REPUTATION = 4.0
-PLATFORM_COMMISSION_RATE = 0.05  # 5% commission
 
 
 def is_valid_uwa_student_email(email):

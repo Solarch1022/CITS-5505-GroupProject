@@ -395,7 +395,7 @@ function attachWalletModal() {
     const launchButtons = Array.from(document.querySelectorAll('[data-wallet-launch]'));
     const closeButtons = Array.from(document.querySelectorAll('[data-wallet-close]'));
 
-    if (!backdrop || !launchButtons.length) {
+    if (!backdrop) {
         return;
     }
 
