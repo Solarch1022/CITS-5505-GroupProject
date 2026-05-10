@@ -1760,10 +1760,10 @@ UWA Student Marketplace Team'''
         )
         if error:
             flash(error, 'error')
-            return redirect(url_for('dashboard_page') + '#wallet')
+            return redirect(url_for('wallet_page'))
 
         flash(f'Linked {method.masked_details}. Only masked payment details are stored in this demo.', 'success')
-        return redirect(url_for('dashboard_page') + '#wallet')
+        return redirect(url_for('wallet_page'))
 
     @app.route('/wallet/top-up', methods=['POST'])
     @login_required
@@ -1776,14 +1776,14 @@ UWA Student Marketplace Team'''
         )
         if error:
             flash(error, 'error')
-            return redirect(url_for('dashboard_page') + '#wallet')
+            return redirect(url_for('wallet_page'))
 
         flash(
             f'Wallet topped up by ${format_money(entry.amount)}. '
             f'Available balance is now ${format_money(wallet.available_balance)}.',
             'success',
         )
-        return redirect(url_for('dashboard_page') + '#wallet')
+        return redirect(url_for('wallet_page'))
 
     @app.route('/wallet/withdraw', methods=['POST'])
     @login_required
@@ -1796,14 +1796,14 @@ UWA Student Marketplace Team'''
         )
         if error:
             flash(error, 'error')
-            return redirect(url_for('dashboard_page') + '#wallet')
+            return redirect(url_for('wallet_page'))
 
         flash(
             f'Withdrawal of ${format_money(abs(withdrawal_entry.amount))} requested to '
             f'{withdrawal_entry.payment_method.masked_details}. Fee charged: ${format_money(abs(fee_entry.amount))}.',
             'success',
         )
-        return redirect(url_for('dashboard_page') + '#wallet')
+        return redirect(url_for('wallet_page'))
 
     @app.route('/dashboard')
     @login_required
