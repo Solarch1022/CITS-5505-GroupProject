@@ -1810,6 +1810,11 @@ UWA Student Marketplace Team'''
     def dashboard_page():
         return render_template('dashboard.html', **resolve_dashboard_context(current_user))
 
+    @app.route('/wallet')
+    @login_required
+    def wallet_page():
+        return render_template('wallet.html', **resolve_dashboard_context(current_user))
+
     @app.route('/referral/generate', methods=['POST'])
     @login_required
     @csrf_protect
