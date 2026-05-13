@@ -1439,10 +1439,20 @@ UWA Student Marketplace Team'''
             .limit(4)
             .all()
         )
+
+        recent_transactions = (
+            Transaction.query
+            .filter_by(status='completed')
+            .order_by(Transaction.created_at.desc())
+            .limit(6)
+            .all()
+        )
+
         return render_template(
             'index.html', 
             latest_items=[serialize_item(item) for item in latest_items], 
             trending_items=[serialize_item(item) for item in trending_items],
+            recent_transactions=recent_transactions,
             )
 
     @app.route('/app')

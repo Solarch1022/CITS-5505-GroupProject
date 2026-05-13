@@ -65,6 +65,34 @@
 
     <section class="section">
         <div class="section-heading">
+            <h2>Recent marketplace activity</h2>
+            <p>Recent completed transactions, shown with anonymised users for privacy.</p>
+        </div>
+
+        {% if recent_transactions %}
+            <div class="info-banner">
+                {% for transaction in recent_transactions %}
+                    <div>
+                        <strong>CampusTrader-{{ '%03d'|format(transaction.buyer.id * 17) }}</strong>
+                        bought
+                        <strong>{{ transaction.item.title }}</strong>
+                        from
+                        <strong>CampusTrader-{{ '%03d'|format(transaction.seller.id * 17) }}</strong>
+                        for
+                        <strong>${{ '%.2f'|format(transaction.price) }}</strong>
+                        <span>
+                            on {{ transaction.created_at.strftime('%d %b %Y') }}
+                        </span>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="empty-state">No completed transactions yet.</div>
+        {% endif %}
+    </section>
+
+    <section class="section">
+        <div class="section-heading">
             <h2>Latest listings</h2>
             <p>
                 {% if latest_items %}
