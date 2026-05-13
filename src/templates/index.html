@@ -48,6 +48,23 @@
 
     <section class="section">
         <div class="section-heading">
+            <h2>Trending listings</h2>
+            <p>Most viewed active listings in the marketplace.</p>
+        </div>
+
+        {% if trending_items %}
+            <div class="items-grid">
+                {% for item in trending_items %}
+                    {% include 'partials/item_card.html' %}
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="empty-state">No trending listings yet.</div>
+        {% endif %}
+    </section>
+
+    <section class="section">
+        <div class="section-heading">
             <h2>Latest listings</h2>
             <p>
                 {% if latest_items %}
