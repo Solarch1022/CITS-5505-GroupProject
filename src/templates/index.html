@@ -6,8 +6,8 @@
     <section class="hero hero-campus">
         <div class="hero-copy">
             <span class="hero-kicker">Exclusive to the UWA campus community</span>
-            <h1>Buy, sell, and message other UWA students in one place.</h1>
-            <p>List textbooks, furniture, electronics, and moving-out essentials with verified student accounts and built-in chat.</p>
+            <h1>Buy, sell, and message UWA students in one trusted place.</h1>
+            <p>Find textbooks, furniture, electronics, and moving-out essentials from verified UWA students. List your own items, chat with buyers or sellers, and complete campus-based trades more easily.</p>
             <div class="hero-actions">
                 <a href="{{ url_for('browse_items') }}" class="btn btn-primary">Browse listings</a>
                 {% if current_user.is_authenticated %}
@@ -18,12 +18,12 @@
             </div>
         </div>
         <div class="hero-panel">
-            <h3>Why this concept fits the assignment</h3>
+            <h3>Why use UWA SecondHand?</h3>
             <ul class="hero-points">
-                <li>Traditional Flask client-server flow with Jinja templates and AJAX-enhanced chat.</li>
-                <li>Persistent users, listings, transactions, uploaded images, and messages.</li>
-                <li>Students can browse data created by other students across the marketplace.</li>
-                <li>Campus-only onboarding through UWA student email verification.</li>
+                <li>Campus-only marketplace for verified UWA students.</li>
+                <li>Built-in chat for arranging questions, pick-up times, and meet-ups.</li>
+                <li>Listings designed for textbooks, furniture, electronics, and student essentials.</li>
+                <li>Reputation and transaction history help support safer student trading.</li>
             </ul>
         </div>
     </section>
@@ -31,14 +31,17 @@
     <section class="section">
         <div class="section-heading">
             <h2>Campus trust model</h2>
-            <p>Every account is validated against {{ uwa_student_domain }} before it can join the marketplace.</p>
+            <p>Trust is supported through student verification, reputation, and on-platform communication.</p>
         </div>
         <div class="info-banner">
             <div>
-                <strong>Live inbox:</strong> buyers and sellers can message inside each listing and keep the conversation on campus.
+                <strong>Verified UWA accounts:</strong> users register with {{ uwa_student_domain }} addresses to keep the marketplace focused on the campus community.
             </div>
             <div>
-                <strong>Reputation:</strong> every completed sale and purchase contributes to a visible trader score.
+                <strong>Reputation:</strong> completed sales and purchases contribute to a visible trader score.
+            </div>
+            <div>
+                <strong>Live inbox:</strong> buyers and sellers can keep listing-related communication organised inside the platform.
             </div>
         </div>
     </section>
@@ -48,7 +51,7 @@
             <h2>Latest listings</h2>
             <p>
                 {% if latest_items %}
-                    Fresh listings from the current database.
+                    Fresh listings from the current marketplace.
                 {% else %}
                     No listings yet. Create the first UWA campus listing.
                 {% endif %}
