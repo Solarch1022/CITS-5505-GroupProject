@@ -153,6 +153,18 @@ def create_app(config_name='development'):
         with db.engine.begin() as connection:
             connection.execute(text('ALTER TABLE items ADD COLUMN is_draft BOOLEAN NOT NULL DEFAULT 0'))
 
+    def ensure_schema_supports_item_views():
+        inspector = inspect(db.engine)
+
+        if 'items' not in inspector.get_table_names():
+            return
+
+        item_columns = {column['name'] for column in inspector.get_columns('items')}
+
+        if 'view_count' not in item_columns:
+            with db.engine.begin() as connection:
+                connection.execute(text('ALTER TABLE items ADD COLUMN view_count INTEGER DEFAULT 0'))
+    
     def ensure_schema_supports_referrals():
         inspector = inspect(db.engine)
         table_names = inspector.get_table_names()
@@ -1408,6 +1420,7 @@ UWA Student Marketplace Team'''
         ensure_existing_users_have_wallets()
         ensure_existing_users_have_email_verified()
         ensure_admin_account_exists()
+        ensure_schema_supports_item_views()
 
     @app.route('/')
     def index():
@@ -1418,7 +1431,29 @@ UWA Student Marketplace Team'''
             .limit(6)
             .all()
         )
-        return render_template('index.html', latest_items=[serialize_item(item) for item in latest_items])
+
+        trending_items = (
+            Item.query
+            .filter_by(is_sold=False, is_draft=False)
+            .order_by(Item.view_count.desc(), Item.created_at.desc())
+            .limit(4)
+            .all()
+        )
+
+        recent_transactions = (
+            Transaction.query
+            .filter_by(status='completed')
+            .order_by(Transaction.created_at.desc())
+            .limit(6)
+            .all()
+        )
+
+        return render_template(
+            'index.html', 
+            latest_items=[serialize_item(item) for item in latest_items], 
+            trending_items=[serialize_item(item) for item in trending_items],
+            recent_transactions=recent_transactions,
+            )
 
     @app.route('/app')
     def legacy_app_redirect():
@@ -1692,6 +1727,9 @@ UWA Student Marketplace Team'''
 
             flash('This listing is currently saved as a draft. Edit it to publish or continue working on it.', 'error')
             return redirect(url_for('edit_listing_page', item_id=item.id))
+        
+        item.view_count = (item.view_count or 0) + 1
+        db.session.commit()
 
         purchase_wallet = None
         contact_conversation = None

@@ -98,7 +98,8 @@ class Item(db.Model):
     is_sold = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
+    view_count = db.Column(db.Integer, default=0, nullable=False)
+
     transactions = db.relationship('Transaction', backref='item', lazy=True)
     conversations = db.relationship('Conversation', backref='item', lazy=True, cascade='all, delete-orphan')
     images = db.relationship(
