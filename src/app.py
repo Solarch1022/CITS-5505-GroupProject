@@ -1448,12 +1448,21 @@ UWA Student Marketplace Team'''
             .all()
         )
 
+        active_listing_count = Item.query.filter_by(is_sold=False, is_draft=False).count()
+        completed_trade_count = Transaction.query.filter_by(status='completed').count()
+        verified_user_count = User.query.filter_by(email_verified=True).count()
+
         return render_template(
             'index.html', 
             latest_items=[serialize_item(item) for item in latest_items], 
             trending_items=[serialize_item(item) for item in trending_items],
             recent_transactions=recent_transactions,
-            )
+            marketplace_stats={
+                'active_listings': active_listing_count,
+                'completed_trades': completed_trade_count,
+                'verified_users': verified_user_count,
+            },
+        )
 
     @app.route('/app')
     def legacy_app_redirect():

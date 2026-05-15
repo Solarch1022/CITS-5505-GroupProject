@@ -30,6 +30,56 @@
 
     <section class="section">
         <div class="section-heading">
+            <h2>Marketplace statistics</h2>
+            <p>Live platform activity and marketplace overview.</p>
+        </div>
+
+        <div class="info-banner">
+            <div>
+                <strong>{{ marketplace_stats.active_listings }}</strong>
+                active listings
+            </div>
+            <div>
+                <strong>{{ marketplace_stats.completed_trades }}</strong>
+                completed trades
+            </div>
+            <div>
+                <strong>{{ marketplace_stats.verified_users }}</strong>
+                verified users
+            </div>
+        </div>
+    </section>
+
+    <section class="section">
+        <div class="section-heading">
+            <h2>Browse by category</h2>
+            <p>Quickly jump into popular student marketplace categories.</p>
+        </div>
+
+        <div class="info-banner">
+            <div>
+                <a href="{{ url_for('browse_items', category='Electronics') }}">Electronics</a>
+            </div>
+            <div>
+                <a href="{{ url_for('browse_items', category='Furniture') }}">Furniture</a>
+            </div>
+            <div>
+                <a href="{{ url_for('browse_items', category='Clothing') }}">Clothing</a>
+            </div>
+            <div>
+                <a href="{{ url_for('browse_items', category='Books') }}">Books</a>
+            </div>
+            <div>
+                <a href="{{ url_for('browse_items', category='Sports') }}">Sports</a>
+            </div>
+            <div>
+                <a href="{{ url_for('browse_items', category='Other') }}">Other</a>
+            </div>
+        </div>
+    </section>
+
+    <section class="section">
+        <div class="section-heading">
             <h2>Campus trust model</h2>
             <p>Trust is supported through student verification, reputation, and on-platform communication.</p>
         </div>
@@ -59,7 +109,9 @@
                 {% endfor %}
             </div>
         {% else %}
-            <div class="empty-state">No trending listings yet.</div>
+            <div class="empty-state">
+                No trending listings yet. Popular items will appear here once students start viewing listings.
+            </div>
         {% endif %}
     </section>
 
@@ -87,7 +139,9 @@
                 {% endfor %}
             </div>
         {% else %}
-            <div class="empty-state">No completed transactions yet.</div>
+            <div class="empty-state">
+                No completed transactions yet. Recent marketplace activity will appear here after students complete trades.
+            </div>
         {% endif %}
     </section>
 
@@ -109,7 +163,9 @@
                 {% endfor %}
             </div>
         {% else %}
-            <div class="empty-state">No items have been listed yet.</div>
+            <div class="empty-state">
+                No listings available right now. Be the first UWA student to post an item.
+            </div>
         {% endif %}
     </section>
 {% endblock %}
