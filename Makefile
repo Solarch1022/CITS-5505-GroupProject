@@ -8,9 +8,9 @@ help:
 	@echo "SecondHand Market - Available Commands"
 	@echo "======================================"
 	@echo "make install       - Install Python dependencies"
-	@echo "make run           - Run development server locally (port 8000)"
+	@echo "make run           - Run development server locally (port 5000)"
 	@echo "make run-port PORT=3000 - Run on specific port"
-	@echo "make kill-port-8000 - Kill process using port 8000"
+	@echo "make kill-port-5000 - Kill process using port 5000"
 	@echo "make docker-build  - Build Docker images"
 	@echo "make docker-up     - Start Docker containers"
 	@echo "make docker-down   - Stop Docker containers"
@@ -83,6 +83,6 @@ run-port:
 	@echo "Example: make run-port PORT=3000"
 	@PORT=$(PORT) $(VENV_BIN)/python src/app.py
 
-kill-port-8000:
-	@echo "Attempting to free port 8000..."
-	@lsof -ti:8000 | xargs kill -9 2>/dev/null || echo "✓ Port 8000 already free"
+kill-port-5000:
+	@echo "Attempting to free port 5000..."
+	@lsof -ti:5000 | xargs kill -9 2>/dev/null || echo "✓ Port 5000 already free"

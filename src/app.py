@@ -204,6 +204,8 @@ def create_app(config_name='development'):
                 transaction_columns = {column['name'] for column in inspector.get_columns('transactions')}
                 if 'quantity_bought' not in transaction_columns:
                     connection.execute(text('ALTER TABLE transactions ADD COLUMN quantity_bought INTEGER NOT NULL DEFAULT 1'))
+                if 'platform_fee' not in transaction_columns:
+                    connection.execute(text('ALTER TABLE transactions ADD COLUMN platform_fee FLOAT NOT NULL DEFAULT 0.0'))
 
     def ensure_schema_supports_email_verification():
         inspector = inspect(db.engine)
