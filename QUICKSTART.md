@@ -46,22 +46,22 @@ Copy-Item .env.example .env
 
 ### 6. Run the development server
 
-Default port (8000):
+Default port (5000):
 
 ```bash
 python src/app.py
 ```
 
-If port `8000` is already occupied:
+If port `5000` is already occupied:
 
 ```bash
-PORT=5000 python src/app.py
+PORT=3000 python src/app.py
 ```
 
 ### 7. Open in your browser
 
-- Default: `http://localhost:8000`
-- If you changed the port: `http://localhost:5000`
+- Default: `http://localhost:5000`
+- If you changed the port: `http://localhost:3000`
 
 ## Main Pages
 

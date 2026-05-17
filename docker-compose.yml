@@ -5,12 +5,12 @@ services:
     build: .
     container_name: secondhand-market-web
     ports:
-      - "8000:8000"
+      - "5000:5000"
     environment:
       - FLASK_ENV=development
       - DATABASE_URL=sqlite:////app/instance/app.db
       - SECRET_KEY=dev-secret-key-change-in-production
-      - PORT=8000
+      - PORT=5000
     volumes:
       - ./src:/app:ro
       - ./instance:/app/instance

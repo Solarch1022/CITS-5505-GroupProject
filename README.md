@@ -151,7 +151,7 @@ The app reads `.env` automatically. Current variables are:
 - `FLASK_ENV`
 - `SECRET_KEY`
 - `DATABASE_URL`
-- `PORT` (optional, defaults to `8000`)
+- `PORT` (optional, defaults to `5000`)
 
 ## Setup and Installation
 
@@ -210,27 +210,27 @@ The app reads `.env` automatically. Current variables are:
 python src/app.py
 ```
 
-The default port is `8000`.
+The default port is `5000`.
 
 ### Windows PowerShell example
 
-If `8000` is already occupied on your machine:
+If `5000` is already occupied on your machine:
 
 ```powershell
-$env:PORT=5000
+$env:PORT=3000
 python src\app.py
 ```
 
 Then open:
 
 ```text
-http://localhost:5000
+http://localhost:3000
 ```
 
 Otherwise the default URL is:
 
 ```text
-http://localhost:8000
+http://localhost:5000
 ```
 
 ## Test Commands

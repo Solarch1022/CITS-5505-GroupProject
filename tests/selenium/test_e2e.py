@@ -7,7 +7,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait,Select
 from selenium.webdriver.support import expected_conditions as EC
 
-BASE_URL = os.environ.get("BASE_URL", "http://127.0.0.1:8000")
+BASE_URL = os.environ.get("BASE_URL", "http://127.0.0.1:5000")
 
 
 class MarketplaceSeleniumTests(unittest.TestCase):
