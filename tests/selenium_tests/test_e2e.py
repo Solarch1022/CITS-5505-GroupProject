@@ -96,9 +96,33 @@ class MarketplaceSeleniumTests(unittest.TestCase):
         self.wait.until(EC.url_contains("/items"))
         self.assertIn("Browse listings", driver.page_source)
 
+    def test_login_page_can_navigate_to_register_page(self):
+        driver = self.driver
+
+        driver.get(BASE_URL + "/")
+        driver.delete_all_cookies()
+
+        driver.get(BASE_URL + "/login")
+        self.wait.until(EC.presence_of_element_located((By.NAME, "username")))
+
+        self.assertIn("Login", driver.page_source)
+        self.assertTrue(driver.find_element(By.NAME, "username").is_displayed())
+        self.assertTrue(driver.find_element(By.NAME, "password").is_displayed())
+
+        register_link = driver.find_element(By.LINK_TEXT, "Register")
+        self.safe_click(register_link)
+
+        self.wait.until(EC.url_contains("/register"))
+        self.assertTrue(driver.find_element(By.NAME, "full_name").is_displayed())
+        self.assertTrue(driver.find_element(By.NAME, "email").is_displayed())
+        self.assertIn("student.uwa.edu.au", driver.page_source)
+
     def test_non_uwa_registration_is_rejected(self):
         driver = self.driver
         username = self.unique_text("outsider")
+
+        driver.get(BASE_URL + "/")
+        driver.delete_all_cookies()
 
         driver.get(BASE_URL + "/register")
         self.wait.until(EC.presence_of_element_located((By.NAME, "username")))
@@ -118,9 +142,25 @@ class MarketplaceSeleniumTests(unittest.TestCase):
         self.assertIn("/register", driver.current_url)
         self.assertIn("student.uwa.edu.au", driver.page_source)
 
+    def test_unauthenticated_user_is_redirected_from_sell_to_login(self):
+        driver = self.driver
+
+        driver.get(BASE_URL + "/")
+        driver.delete_all_cookies()
+
+        driver.get(BASE_URL + "/sell")
+
+        self.wait.until(EC.url_contains("/login"))
+        self.assertIn("/login", driver.current_url)
+        self.assertTrue(driver.find_element(By.NAME, "username").is_displayed())
+        self.assertTrue(driver.find_element(By.NAME, "password").is_displayed())
+
     def test_verified_user_can_login_access_sell_and_logout(self):
         driver = self.driver
         username, password = self.create_verified_user_for_browser_login()
+
+        driver.get(BASE_URL + "/")
+        driver.delete_all_cookies()
 
         driver.get(BASE_URL + "/login")
         self.wait.until(EC.presence_of_element_located((By.NAME, "username")))
