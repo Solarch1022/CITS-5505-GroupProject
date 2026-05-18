@@ -272,3 +272,91 @@ Current automated coverage includes:
 - Like New
 - Good
 - Fair
+
+## Testing and Security Test Suite
+
+The project includes both Flask unit/security tests and Selenium WebDriver browser tests.
+
+### Test Coverage
+
+The current test suite includes:
+
+- 9 unit/security tests
+- 5 Selenium WebDriver browser tests
+- 14 tests in total
+
+The tests cover:
+
+- Homepage and browse page loading
+- Public items API loading
+- UWA student email registration validation
+- Rejection of non-UWA email registration
+- Password hashing
+- CSRF protection for unsafe POST requests
+- Protected API access for unauthenticated users
+- Prevention of login for unverified users
+- Verified user login and item creation
+- Browser navigation from homepage to browse page
+- Browser navigation from login page to register page
+- Unauthenticated redirect from sell page to login page
+- Verified user login, sell page access, and logout flow
+
+### Running Unit and Security Tests
+
+Unit and security tests do not require the Flask development server to be running.
+
+Run the following command from the project root directory:
+
+```bash
+python -m unittest tests.test_basic_app tests.test_security -v
+```
+
+### Running Selenium Browser Tests
+
+Selenium browser tests require the Flask development server to be running first.
+
+In terminal 1, start the Flask app:
+
+```bash
+python src/app.py
+```
+
+The server should run at:
+
+```text
+http://127.0.0.1:5000
+```
+
+In terminal 2, run the Selenium tests:
+
+```bash
+python -m unittest discover -s tests/selenium_tests -p "test*.py" -v
+```
+
+### Running the Full Test Suite
+
+The full test suite includes Selenium browser tests, so the Flask development server must be running at `http://127.0.0.1:5000` before running this command.
+
+Run the following command from the project root directory:
+
+```bash
+python -m unittest discover -s tests -p "test*.py" -v
+```
+
+Expected result:
+
+```text
+Ran 14 tests
+
+OK
+```
+
+### Important Note
+
+If the Flask development server is not running, the Selenium tests will fail with a connection error such as:
+
+```text
+net::ERR_CONNECTION_REFUSED
+```
+
+This means the browser test could not connect to `http://127.0.0.1:5000`. Start the Flask app first, then run the Selenium tests again.
